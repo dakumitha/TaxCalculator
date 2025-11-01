@@ -1,5 +1,5 @@
 
-import React, { useState, useReducer, useMemo, useEffect } from 'react';
+import React, { useState, useReducer, useMemo } from 'react';
 import { TaxData, TaxRegime, IncomeSource, ComputationResult, AssessmentType, AdditionItem, IncomeBreakdown, SetOffDetail, PresumptiveScheme, Vehicle44AE, ResidentialStatus, InternationalIncomeItem, InternationalIncomeNature, ComplianceStatus } from './types';
 import { TABS, ASSESSMENT_YEARS, YEARLY_CONFIGS, FILING_DUE_DATES, AUDIT_TAXPAYER_TYPES } from './constants';
 import { calculateTax } from './services/taxCalculator';
@@ -324,13 +324,10 @@ const IncomeTableRow: React.FC<{
     helpText?: string;
     disabled?: boolean;
 }> = ({ label, path, value, dispatch, helpText, disabled = false }) => {
-
-    useEffect(() => {
-        // Ensure there is always at least one item to bind the input to.
-        if (!value.additions || value.additions.length === 0) {
-            dispatch({ type: 'ADD_ITEM', payload: { path } });
-        }
-    }, [value.additions, path, dispatch]);
+    // Ensure there is always at least one item to bind the input to.
+    if (!value.additions || value.additions.length === 0) {
+        dispatch({ type: 'ADD_ITEM', payload: { path } });
+    }
     
     const handleItemChange = (id: string, field: 'amount' | 'location', val: any) => {
         const value = field === 'amount' ? parseFormattedValue(val) : val;
@@ -736,44 +733,10 @@ export default function App() {
   const [activeTab, setActiveTab] = useState('Profile');
   const [taxData, dispatch] = useReducer(taxDataReducer, initialTaxData);
 
-  useEffect(() => {
-    const savedData = localStorage.getItem('aoTaxToolData');
-    if (savedData) {
-        try {
-            const parsedData = JSON.parse(savedData);
-            dispatch({ type: 'RESET_STATE', payload: parsedData });
-            console.log("Progress loaded from localStorage.");
-        } catch (error) {
-            console.error("Failed to parse saved data:", error);
-        }
-    }
-  }, []);
-
-  const handleSave = () => {
-    try {
-        localStorage.setItem('aoTaxToolData', JSON.stringify(taxData));
-        alert('Progress saved successfully!');
-    } catch (error) {
-        console.error("Failed to save progress:", error);
-        alert('Failed to save progress.');
-    }
-  };
-
-  const handleLoad = () => {
-    if (confirm('Loading saved data will overwrite any unsaved changes. Continue?')) {
-        const savedData = localStorage.getItem('aoTaxToolData');
-        if (savedData) {
-            try {
-                const parsedData = JSON.parse(savedData);
-                dispatch({ type: 'RESET_STATE', payload: parsedData });
-                alert('Progress loaded successfully!');
-            } catch (error) {
-                console.error("Failed to parse saved data:", error);
-                alert('Failed to load data. The saved data might be corrupted.');
-            }
-        } else {
-            alert('No saved data found.');
-        }
+  const handleReset = () => {
+    if (window.confirm('Are you sure you want to reset all data? This action cannot be undone.')) {
+      dispatch({ type: 'RESET_STATE', payload: initialTaxData });
+      alert('Data has been reset.');
     }
   };
 
@@ -1632,8 +1595,7 @@ export default function App() {
         <div className="container mx-auto px-4 py-3 flex justify-between items-center">
             <h1 className="text-2xl font-bold">AO Tax Tool</h1>
              <div className="flex items-center gap-4">
-                <button onClick={handleSave} className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded-md text-sm">Save Progress</button>
-                <button onClick={handleLoad} className="bg-gray-600 hover:bg-gray-700 text-white px-3 py-1 rounded-md text-sm">Load Progress</button>
+                <button onClick={handleReset} className="bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded-md text-sm">Reset</button>
                 <div className="text-right">
                     <label htmlFor="ay-select" className="text-xs text-gray-400 block">Assessment Year</label>
                     <select 
