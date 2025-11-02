@@ -1,5 +1,7 @@
 
 
+
+
 import { TaxData, ComputationResult, CapitalGainsBreakdown, TaxRegime, InterestResult, IncomeSource, DetailedIncomeBreakdown, SetOffDetail, PresumptiveScheme, ResidentialStatus, AdditionItem, InternationalIncomeNature, InternationalIncomeItem, InternationalIncomeComputation, TrustData, TrustComputationResult } from '../types';
 import { YEARLY_CONFIGS } from '../constants';
 
@@ -341,13 +343,25 @@ export function calculateTax(data: TaxData): ComputationResult {
     data.salary.deductions.professionalTax, data.salary.deductions.entertainmentAllowance
   ];
 
-  const totalSalaryAdditions = allSalarySources.reduce((acc, source) => {
+  const assessedSalaryGross = allSalarySources.reduce((acc, source) => {
     return acc + getTaxableValue(source, residentialStatus);
   }, 0);
-  const assessedSalaryNet = totalSalaryAdditions;
+  
+  let standardDeduction = 0;
+  if (data.salary.wasStandardDeductionAllowedPreviously) {
+    standardDeduction = 0;
+  } else if (data.taxpayerType === 'individual' && assessedSalaryGross > 0) {
+      const sdConfig = individualConfig.DEDUCTION_LIMITS;
+      if (data.taxRegime === TaxRegime.New && sdConfig.STANDARD_DEDUCTION_NEW_REGIME) {
+          standardDeduction = Math.min(assessedSalaryGross, sdConfig.STANDARD_DEDUCTION_NEW_REGIME);
+      } else if (data.taxRegime === TaxRegime.Old && sdConfig.STANDARD_DEDUCTION) {
+          standardDeduction = Math.min(assessedSalaryGross, sdConfig.STANDARD_DEDUCTION);
+      }
+  }
 
-  // All deductions are now treated as additions, so these specific variables are zeroed out
-  const standardDeduction = 0;
+  const assessedSalaryNet = assessedSalaryGross; // Standard Deduction will be applied to GTI
+
+  // Since all deductions are entered as additions, these are effectively 0 for calc purposes
   const assessedProfessionalTax = 0;
   const assessedEntertainmentAllowance = 0;
   
@@ -606,7 +620,8 @@ export function calculateTax(data: TaxData): ComputationResult {
   }
   
   const totalDisallowedDeductions = calculateTotalDisallowedDeductions(data);
-  let netTaxableIncome = grossTotalIncome + totalDisallowedDeductions;
+  const incomeAfterStandardDeduction = grossTotalIncome - standardDeduction;
+  let netTaxableIncome = incomeAfterStandardDeduction + totalDisallowedDeductions;
   
   // --- Bifurcate logic for Trusts vs Standard Taxpayers ---
   let trustComputation: TrustComputationResult | null = null;
@@ -661,13 +676,16 @@ export function calculateTax(data: TaxData): ComputationResult {
         case 'firm': case 'llp': case 'local authority':
             taxOnNormalIncome = normalIncome * yearConfig[data.taxpayerType].RATE;
             break;
-        case 'company':
-            const companyConfig = yearConfig.company[data.companyType];
-            const rate = data.companyType === 'domestic' 
-                ? ((data.previousYearTurnover ?? 0) <= 4000000000 ? companyConfig.turnover_lte_400cr : companyConfig.turnover_gt_400cr)
-                : companyConfig.RATE;
+        case 'company': {
+            const companyConfig = yearConfig.company[data.companyType as 'domestic' | 'foreign'];
+            let rate = companyConfig.RATE;
+            if (data.companyType === 'domestic' && companyConfig.turnoverBasedRates) {
+                const tbr = companyConfig.turnoverBasedRates;
+                rate = (data.previousYearTurnover ?? 0) <= tbr.threshold ? tbr.rate_lte : tbr.rate_gt;
+            }
             taxOnNormalIncome = normalIncome * rate;
             break;
+        }
       }
       taxBreakdownForInterest.onNormalIncome = taxOnNormalIncome;
 
@@ -680,21 +698,57 @@ export function calculateTax(data: TaxData): ComputationResult {
               const entityConfig = yearConfig[data.taxpayerType] || yearConfig.individual;
               surchargeRates = (data.taxRegime === 'New' && entityConfig.SURCHARGE_RATES_NEW) ? entityConfig.SURCHARGE_RATES_NEW : entityConfig.SURCHARGE_RATES;
               break;
-          default: surchargeRates = yearConfig[data.taxpayerType]?.SURCHARGE_RATES || yearConfig.company?.[data.companyType as 'domestic' | 'foreign']?.SURCHARGE_RATES;
+          default: 
+            const typeConfig = yearConfig[data.taxpayerType];
+            const companyTypeConfig = yearConfig.company?.[data.companyType as 'domestic' | 'foreign'];
+            surchargeRates = typeConfig?.SURCHARGE_RATES || companyTypeConfig?.SURCHARGE_RATES;
       }
+      
+      if (surchargeRates && netTaxableIncome > 0) {
+        let taxOnOtherIncomes = baseTaxBeforeSurcharge - taxOnDeemedIncomeRaw;
+        // In some older years, surcharge on LTCG/STCG was capped. This is a simplification.
+        
+        let applicableRate = 0;
+        let threshold = 0;
+        
+        const sortedSurchargeRates = [...surchargeRates].sort((a, b) => a.limit - b.limit);
+        
+        for (const slab of sortedSurchargeRates) {
+            if (netTaxableIncome > slab.limit) {
+                applicableRate = slab.rate;
+                threshold = slab.limit;
+            } else {
+                break;
+            }
+        }
 
-      if (surchargeRates && slabs) {
-        const taxOnOtherIncomes = baseTaxBeforeSurcharge - taxOnDeemedIncomeRaw;
-        let applicableRate = 0; let threshold = 0;
-        for (const slab of [...surchargeRates].reverse()) { if (netTaxableIncome > slab.limit) { applicableRate = slab.rate; threshold = slab.limit; break; } }
         if (applicableRate > 0) {
             grossSurcharge = taxOnOtherIncomes * applicableRate;
             const taxPlusSurcharge = taxOnOtherIncomes + grossSurcharge + taxOnDeemedIncome;
-            const taxAtThreshold = calculateTaxOnIncome(threshold, slabs);
+            
+            // Calculate tax at the surcharge threshold
+            let taxAtThreshold = 0;
+            if (slabs) {
+                 taxAtThreshold = calculateTaxOnIncome(threshold - domesticSpecialIncome, slabs) + (baseTaxBeforeSurcharge - taxOnNormalIncome - taxOnDeemedIncomeRaw);
+            } else { // Flat rate taxpayers
+                taxAtThreshold = threshold * (yearConfig[data.taxpayerType]?.RATE || yearConfig.company?.[data.companyType as 'domestic' | 'foreign']?.RATE || 0);
+            }
+            
             let surchargeOnThreshold = 0;
-            for (const slab of [...surchargeRates].reverse()) { if (threshold > slab.limit) { surchargeOnThreshold = taxAtThreshold * slab.rate; break; } }
+            let lowerSlabRate = 0;
+             for (const slab of sortedSurchargeRates) {
+                if (threshold > slab.limit) {
+                    lowerSlabRate = slab.rate;
+                } else {
+                    break;
+                }
+            }
+            surchargeOnThreshold = taxAtThreshold * lowerSlabRate;
+
             const cappedTax = (taxAtThreshold + surchargeOnThreshold) + (netTaxableIncome - threshold) + taxOnDeemedIncome;
-            if (taxPlusSurcharge > cappedTax) { marginalRelief = taxPlusSurcharge - cappedTax; }
+            if (taxPlusSurcharge > cappedTax) {
+                marginalRelief = taxPlusSurcharge - cappedTax;
+            }
         }
       }
 
@@ -705,7 +759,9 @@ export function calculateTax(data: TaxData): ComputationResult {
       if (data.taxpayerType === 'individual') {
         const rebateConfig = (data.taxRegime === 'New' && individualConfig.REBATE_87A_NEW) ? individualConfig.REBATE_87A_NEW : individualConfig.REBATE_87A;
         if (rebateConfig && netTaxableIncome <= rebateConfig.INCOME_CEILING) {
-            rebate87A = Math.min(taxBeforeRebateAndCess, rebateConfig.LIMIT);
+            if (!((rebateConfig as any).excludeSuperSenior && data.age === 'above80')) {
+                rebate87A = Math.min(taxBeforeRebateAndCess, rebateConfig.LIMIT);
+            }
         }
       }
   }
@@ -835,7 +891,7 @@ export function calculateTax(data: TaxData): ComputationResult {
     trustComputation,
     breakdown: {
       income: {
-        salary: { baseAmount: 0, totalAdditions: totalSalaryAdditions, assessed: incomePool.salary },
+        salary: { baseAmount: 0, totalAdditions: assessedSalaryGross, assessed: incomePool.salary },
         houseProperty: { baseAmount: 0, totalAdditions: housePropertyResult.breakdown.totalAdditions, assessed: incomePool.hp },
         pgbp: { netProfit: pgbpBaseAmount, baseAmount: pgbpBaseAmount, totalAdditions: pgbpTotalAdditions + assessedSpeculativeIncome, assessed: finalPgbpIncome },
         capitalGains: { baseAmount: 0, totalAdditions: totalCapitalGainsAdditions, assessed: finalCapitalGains },

@@ -1,6 +1,9 @@
 
 
 
+
+
+
 import React, { useState, useReducer, useMemo, useEffect } from 'react';
 import { TaxData, TaxRegime, IncomeSource, ComputationResult, AssessmentType, AdditionItem, DetailedIncomeBreakdown, SetOffDetail, PresumptiveScheme, Vehicle44AE, ResidentialStatus, InternationalIncomeItem, InternationalIncomeNature, ComplianceStatus, TrustData } from './types';
 import { TABS, ASSESSMENT_YEARS, YEARLY_CONFIGS, FILING_DUE_DATES, AUDIT_TAXPAYER_TYPES } from './constants';
@@ -74,6 +77,7 @@ const initialTaxData: TaxData = {
   trustData: newTrustData(),
   salary: {
     employeeType: 'non-government',
+    wasStandardDeductionAllowedPreviously: false,
     basicSalary: newIncomeSource(),
     allowances: newIncomeSource(),
     bonusAndCommission: newIncomeSource(),
@@ -606,6 +610,9 @@ const SummaryView: React.FC<{ data: TaxData; result: ComputationResult }> = ({ d
                                     <ComparisonRow label="Deemed Income (Sec 68-69D)" oldVal={oldResult.breakdown.income.deemed} newVal={newResult.breakdown.income.deemed} isBold />
                                 }
                                 <ComparisonRow label="Gross Total Income" oldVal={oldResult.grossTotalIncome} newVal={newResult.grossTotalIncome} isBold isAccent />
+                                {(oldResult.breakdown.standardDeduction > 0 || newResult.breakdown.standardDeduction > 0) &&
+                                    <ComparisonRow label="Less: Standard Deduction u/s 16" oldVal={oldResult.breakdown.standardDeduction} newVal={newResult.breakdown.standardDeduction} isNegative />
+                                }
                                 {(oldResult.totalDeductions > 0 || newResult.totalDeductions > 0) &&
                                     <ComparisonRow label="Add: Disallowed Deductions under Chapter VI-A" oldVal={oldResult.totalDeductions} newVal={newResult.totalDeductions} />
                                 }
@@ -815,6 +822,9 @@ const SummaryView: React.FC<{ data: TaxData; result: ComputationResult }> = ({ d
                     {renderIncomeHead("Winnings from Lottery, etc.", result.breakdown.income.winnings)}
                     {result.breakdown.income.deemed > 0 && <Row label="Deemed Income (Sec 68-69D)" amount={result.breakdown.income.deemed} isBold isAccent />}
                     <Row label="Gross Total Income" amount={result.grossTotalIncome} isBold isAccent />
+                    {result.breakdown.standardDeduction > 0 && 
+                        <Row label="Less: Standard Deduction u/s 16" amount={result.breakdown.standardDeduction} isNegative />
+                    }
                     {result.totalDeductions > 0 &&
                         <Row label="Add: Disallowed Deductions under Chapter VI-A" amount={result.totalDeductions} />
                     }
@@ -1200,6 +1210,32 @@ export default function App() {
                          </label>
                      </div>
                  </div>
+
+                 <div className="mb-6 flex items-center gap-6 p-4 bg-yellow-50 rounded-lg border border-yellow-300">
+                    <label className="font-medium text-gray-700 text-sm">Was Standard Deduction u/s 16 already allowed in 143(1)/earlier assessment?</label>
+                    <div className="flex items-center gap-4">
+                        <label className="flex items-center cursor-pointer">
+                            <input
+                                type="radio"
+                                name="wasStandardDeductionAllowedPreviously"
+                                checked={taxData.salary.wasStandardDeductionAllowedPreviously === true}
+                                onChange={() => dispatch({ type: 'UPDATE_FIELD', payload: { path: 'salary.wasStandardDeductionAllowedPreviously', value: true } })}
+                                className="h-4 w-4"
+                            />
+                            <span className="ml-2 text-sm text-gray-800">Yes</span>
+                        </label>
+                        <label className="flex items-center cursor-pointer">
+                            <input
+                                type="radio"
+                                name="wasStandardDeductionAllowedPreviously"
+                                checked={taxData.salary.wasStandardDeductionAllowedPreviously === false}
+                                onChange={() => dispatch({ type: 'UPDATE_FIELD', payload: { path: 'salary.wasStandardDeductionAllowedPreviously', value: false } })}
+                                className="h-4 w-4"
+                            />
+                            <span className="ml-2 text-sm text-gray-800">No</span>
+                        </label>
+                    </div>
+                </div>
 
                 <h3 className="font-bold text-md text-gray-800 mb-2">Assessable Salary Components (u/s 17)</h3>
                  <table className="w-full table-fixed mb-6">

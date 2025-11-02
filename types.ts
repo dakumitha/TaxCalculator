@@ -1,4 +1,5 @@
 
+
 export enum TaxRegime {
   Old = 'Old',
   New = 'New',
@@ -18,6 +19,7 @@ export interface IncomeSource {
 
 export interface Salary {
   employeeType: 'government' | 'non-government';
+  wasStandardDeductionAllowedPreviously: boolean;
   // Sec 17(1) - Salary Components
   basicSalary: IncomeSource;
   allowances: IncomeSource;
