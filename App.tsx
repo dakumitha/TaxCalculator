@@ -440,23 +440,27 @@ const IncomeTableRow: React.FC<{
                                     disabled={disabled}
                                     className={`p-2 border rounded-md text-left flex-grow text-sm ${disabled ? 'bg-gray-200 cursor-not-allowed' : 'bg-white'}`}
                                 />
-                                <button 
-                                    onClick={() => handleRemove(item.id)} 
-                                    disabled={disabled || value.additions.length <= 1}
-                                    className="text-sm text-red-500 hover:text-red-700 disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0"
-                                    aria-label="Remove entry"
-                                >
-                                    Remove
-                                </button>
                             </div>
                         ))}
-                        <button
-                            onClick={handleAdd}
-                            disabled={disabled}
-                            className="mt-2 text-sm text-blue-600 hover:text-blue-800 disabled:opacity-50"
-                        >
-                            + Add Entry
-                        </button>
+                        <div className="mt-2 flex items-center gap-4">
+                            <button
+                                onClick={handleAdd}
+                                disabled={disabled}
+                                className="text-sm text-blue-600 hover:text-blue-800 disabled:opacity-50"
+                            >
+                                + Add Entry
+                            </button>
+                            {value?.additions?.length > 1 && (
+                                 <button 
+                                    onClick={() => handleRemove(value.additions[value.additions.length - 1].id)} 
+                                    disabled={disabled}
+                                    className="text-sm text-red-500 hover:text-red-700 disabled:opacity-50"
+                                    aria-label="Remove last entry"
+                                >
+                                    - Remove Last
+                                </button>
+                            )}
+                        </div>
                     </div>
                  ) : (
                     firstItem ? (
@@ -1065,6 +1069,24 @@ const CalculatedDisplayRow: React.FC<{ label: string; value: number; helpText?: 
     </tr>
 );
 
+const SummaryCard: React.FC<{ title: string; children: React.ReactNode }> = ({ title, children }) => (
+  <div className="mt-8 bg-blue-50 border border-blue-200 rounded-lg shadow-sm">
+    <h3 className="text-lg font-semibold text-blue-800 p-4 border-b border-blue-200">{title}</h3>
+    <table className="w-full text-sm">
+      <tbody>
+        {children}
+      </tbody>
+    </table>
+  </div>
+);
+
+const SummaryRow: React.FC<{ label: string; value: number; isNegative?: boolean; isBold?: boolean }> = ({ label, value, isNegative, isBold }) => (
+    <tr className={`${isBold ? 'font-semibold text-blue-900' : ''} border-t border-blue-100 last:border-0`}>
+        <td className="p-3 text-left text-gray-700">{label}</td>
+        <td className="p-3 text-right font-mono">{isNegative ? `(${formatCurrency(Math.abs(value))})` : formatCurrency(value)}</td>
+    </tr>
+);
+
 export default function App() {
   const [activeTab, setActiveTab] = useState('Assessee Details');
   const [taxData, dispatch] = useReducer(taxDataReducer, initialTaxData);
@@ -1401,28 +1423,42 @@ export default function App() {
                     </tbody>
                 </table>
             </Card>
+            <SummaryCard title="Salary Computation Summary">
+                <SummaryRow label="Gross Assessable Salary" value={computationResult.breakdown.income.salary.totalAdditions} />
+                <SummaryRow label="Net Income from Salary (after set-off)" value={computationResult.breakdown.income.salary.assessed} isBold />
+            </SummaryCard>
           </>
         );
       }
-      case 'House Property':
+      case 'House Property': {
+        const ayNum = parseInt(taxData.assessmentYear.split('-')[0], 10);
+        const maxSOPs = (ayNum >= 2020) ? 2 : 1;
+        let sopCount = 0;
+
         return (<>
-          {taxData.houseProperty.map((hp, index) => (
+          {taxData.houseProperty.map((hp, index) => {
+            let isExcessSop = false;
+            if (hp.isSelfOccupied) {
+                sopCount++;
+                if (sopCount > maxSOPs) {
+                    isExcessSop = true;
+                }
+            }
+
+            return (
             <Card 
                 key={hp.id} 
                 title={
                     <div className="flex justify-between items-center">
                         <span>House Property {index + 1}</span>
-                        {taxData.houseProperty.length > 1 &&
-                            <button 
-                                onClick={() => dispatch({ type: 'REMOVE_HOUSE_PROPERTY', payload: { id: hp.id } })} 
-                                className="text-sm bg-red-500 text-white px-3 py-1 rounded-md hover:bg-red-600 no-print"
-                            >
-                                Remove
-                            </button>
-                        }
                     </div>
                 }
             >
+                 {isExcessSop && (
+                    <div className="p-3 mb-4 text-sm text-yellow-800 bg-yellow-100 border border-yellow-300 rounded-md" role="alert">
+                        Note: As more than {maxSOPs} {maxSOPs > 1 ? 'properties are' : 'property is'} marked as self-occupied, this property will be treated as 'Deemed to be Let Out' for calculation purposes. Its NAV will be computed based on rental value.
+                    </div>
+                )}
                 <div className="mb-4">
                     <label className="flex items-center">
                         <input 
@@ -1438,31 +1474,45 @@ export default function App() {
                 <table className="w-full table-fixed">
                     {tableHeader()}
                     <tbody>
-                        <IncomeTableRow label="Gross Rent Received / Receivable" path={`houseProperty.${index}.grossRent`} value={hp.grossRent} dispatch={dispatch} disabled={hp.isSelfOccupied} />
-                        <IncomeTableRow label="Municipal Taxes Paid" path={`houseProperty.${index}.municipalTaxes`} value={hp.municipalTaxes} dispatch={dispatch} disabled={hp.isSelfOccupied} />
+                        <IncomeTableRow label="Gross Rent Received / Receivable" path={`houseProperty.${index}.grossRent`} value={hp.grossRent} dispatch={dispatch} disabled={hp.isSelfOccupied && !isExcessSop} />
+                        <IncomeTableRow label="Municipal Taxes Paid" path={`houseProperty.${index}.municipalTaxes`} value={hp.municipalTaxes} dispatch={dispatch} disabled={hp.isSelfOccupied && !isExcessSop} />
                         <CalculatedDisplayRow 
                             label="Net Annual Value (NAV)" 
-                            value={hp.isSelfOccupied ? 0 : Math.max(0, getIncomeSourceAmount(hp.grossRent) - getIncomeSourceAmount(hp.municipalTaxes))}
+                            value={(hp.isSelfOccupied && !isExcessSop) ? 0 : Math.max(0, getIncomeSourceAmount(hp.grossRent) - getIncomeSourceAmount(hp.municipalTaxes))}
                         />
                          <CalculatedDisplayRow 
                             label="Less: Standard Deduction u/s 24(a) (30% of NAV)" 
-                            value={hp.isSelfOccupied ? 0 : Math.max(0, getIncomeSourceAmount(hp.grossRent) - getIncomeSourceAmount(hp.municipalTaxes)) * 0.3}
+                            value={(hp.isSelfOccupied && !isExcessSop) ? 0 : Math.max(0, getIncomeSourceAmount(hp.grossRent) - getIncomeSourceAmount(hp.municipalTaxes)) * 0.3}
                         />
                         <IncomeTableRow label="Interest on Borrowed Capital u/s 24(b)" path={`houseProperty.${index}.interestOnLoan`} value={hp.interestOnLoan} dispatch={dispatch} />
                     </tbody>
                 </table>
             </Card>
-          ))}
-          <div className="flex justify-start no-print">
+          )})}
+          <div className="flex justify-start no-print gap-4">
             <button 
                 onClick={() => dispatch({ type: 'ADD_HOUSE_PROPERTY' })} 
                 className="bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700"
             >
                 + Add Another Property
             </button>
+            {taxData.houseProperty.length > 1 &&
+                <button 
+                    onClick={() => dispatch({ type: 'REMOVE_HOUSE_PROPERTY', payload: { id: taxData.houseProperty[taxData.houseProperty.length - 1].id } })} 
+                    className="text-sm bg-red-500 text-white px-3 py-2 rounded-md hover:bg-red-600 no-print"
+                >
+                    - Remove Last Property
+                </button>
+            }
           </div>
+          <SummaryCard title="House Property Computation Summary">
+            <SummaryRow label="Total Net Annual Value (NAV) of all LOPs" value={computationResult.breakdown.nav} />
+            <SummaryRow label="Total Standard Deduction u/s 24(a)" value={computationResult.breakdown.standardDeduction24a} isNegative />
+            <SummaryRow label="Net Income/Loss from House Property (after set-off)" value={computationResult.breakdown.income.houseProperty.assessed} isBold />
+          </SummaryCard>
         </>
         );
+      }
       case 'PGBP': {
         const { pgbp } = taxData;
         const isPresumptive = pgbp.presumptiveScheme !== PresumptiveScheme.None;
@@ -1516,7 +1566,7 @@ export default function App() {
                    <div className="border rounded-lg p-4">
                      <h3 className="font-semibold mb-2">Vehicles u/s 44AE</h3>
                      {pgbp.vehicles44AE.map(v => (
-                        <div key={v.id} className="grid grid-cols-1 md:grid-cols-5 gap-3 items-end mb-4 p-3 bg-gray-50 rounded">
+                        <div key={v.id} className="grid grid-cols-1 md:grid-cols-4 gap-3 items-end mb-4 p-3 bg-gray-50 rounded">
                             <FormField label="Vehicle Type">
                                 <select value={v.type} onChange={e => dispatch({type: 'UPDATE_VEHICLE', payload: {id: v.id, field: 'type', value: e.target.value}})} className="p-2 border rounded-md w-full">
                                     <option value="heavy">Heavy Goods Vehicle</option>
@@ -1532,10 +1582,14 @@ export default function App() {
                             <div className="font-mono bg-white p-2 rounded-md text-sm text-center">
                                {formatCurrency(v.type === 'heavy' ? (v.tonnage ?? 0) * (v.months ?? 0) * 1000 : (v.months ?? 0) * 7500)}
                             </div>
-                            <button onClick={() => dispatch({type: 'REMOVE_VEHICLE', payload: {id: v.id}})} className="bg-red-500 text-white px-3 py-2 rounded-md h-10">Remove</button>
                         </div>
                      ))}
-                     <button onClick={() => dispatch({type: 'ADD_VEHICLE'})} className="bg-blue-500 text-white px-3 py-2 rounded-md text-sm">+ Add Vehicle</button>
+                     <div className="flex items-center gap-4">
+                        <button onClick={() => dispatch({type: 'ADD_VEHICLE'})} className="bg-blue-500 text-white px-3 py-2 rounded-md text-sm">+ Add Vehicle</button>
+                        {pgbp.vehicles44AE.length > 0 &&
+                            <button onClick={() => dispatch({type: 'REMOVE_VEHICLE', payload: {id: pgbp.vehicles44AE[pgbp.vehicles44AE.length - 1].id}})} className="bg-red-500 text-white px-3 py-2 rounded-md text-sm">- Remove Last Vehicle</button>
+                        }
+                    </div>
                    </div>
                 )}
                 
@@ -1592,6 +1646,11 @@ export default function App() {
                     </tbody>
                 </table>
             </Card>
+            <SummaryCard title="PGBP Computation Summary">
+                <SummaryRow label="Net Profit / Presumptive Income" value={computationResult.breakdown.income.pgbp.netProfit} />
+                <SummaryRow label="Total Additions / Disallowances" value={computationResult.breakdown.income.pgbp.totalAdditions} />
+                <SummaryRow label="Net PGBP Income (after set-off)" value={computationResult.breakdown.income.pgbp.assessed} isBold />
+            </SummaryCard>
         </>
         );
       }
@@ -1633,10 +1692,19 @@ export default function App() {
                      </tfoot>
                 </table>
             </Card>
+             <SummaryCard title="Capital Gains Computation Summary">
+                <SummaryRow label="STCG u/s 111A" value={computationResult.breakdown.income.capitalGainsBreakdown.stcg111A} />
+                <SummaryRow label="STCG (Other)" value={computationResult.breakdown.income.capitalGainsBreakdown.stcgOther} />
+                <SummaryRow label="LTCG u/s 112A" value={computationResult.breakdown.income.capitalGainsBreakdown.ltcg112A} />
+                <SummaryRow label="LTCG (Other)" value={computationResult.breakdown.income.capitalGainsBreakdown.ltcgOther} />
+                <SummaryRow label="Total Additions / Disallowances" value={computationResult.breakdown.income.capitalGains.totalAdditions} />
+                <SummaryRow label="Net Capital Gains (after set-off)" value={computationResult.breakdown.income.capitalGains.assessed} isBold />
+            </SummaryCard>
           </>);
       }
       case 'Other Sources': {
         const { otherSources, deemedIncome } = taxData;
+        const totalOtherSources = computationResult.breakdown.income.otherSources.assessed + computationResult.breakdown.income.winnings.assessed + computationResult.breakdown.income.deemed;
         return (
           <>
             <Card title="Income from Other Sources">
@@ -1668,16 +1736,22 @@ export default function App() {
                     </tbody>
                 </table>
             </Card>
+            <SummaryCard title="Other Sources Computation Summary">
+                <SummaryRow label="Income from Other Sources" value={computationResult.breakdown.income.otherSources.assessed} />
+                <SummaryRow label="Winnings from Lottery, etc." value={computationResult.breakdown.income.winnings.assessed} />
+                <SummaryRow label="Deemed Income" value={computationResult.breakdown.income.deemed} />
+                <SummaryRow label="Total Income from Other Sources" value={totalOtherSources} isBold />
+            </SummaryCard>
           </>
         )
       }
       case 'International Income':
-        return (<Card title="International Income & Foreign Tax Credit">
+        return (<>
+        <Card title="International Income & Foreign Tax Credit">
           {taxData.internationalIncome.map((item, index) => (
              <div key={item.id} className="border p-4 rounded-lg mb-4 bg-gray-50">
                 <div className="flex justify-between items-center mb-4">
                   <h3 className="font-semibold text-lg">Entry {index + 1}</h3>
-                  <button onClick={() => dispatch({type: 'REMOVE_INTERNATIONAL_INCOME', payload: {id: item.id}})} className="bg-red-500 text-white px-3 py-1 rounded">Remove</button>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                    <FormField label="Country">
@@ -1733,11 +1807,23 @@ export default function App() {
                 </div>
              </div>
           ))}
-          <button onClick={() => dispatch({type: 'ADD_INTERNATIONAL_INCOME'})} className="bg-green-600 text-white px-4 py-2 rounded">+ Add International Income Entry</button>
-        </Card>);
+          <div className="flex items-center gap-4">
+            <button onClick={() => dispatch({type: 'ADD_INTERNATIONAL_INCOME'})} className="bg-green-600 text-white px-4 py-2 rounded">+ Add International Income Entry</button>
+            {taxData.internationalIncome.length > 0 &&
+                <button onClick={() => dispatch({type: 'REMOVE_INTERNATIONAL_INCOME', payload: {id: taxData.internationalIncome[taxData.internationalIncome.length - 1].id}})} className="bg-red-500 text-white px-3 py-2 rounded">- Remove Last Entry</button>
+            }
+          </div>
+        </Card>
+        <SummaryCard title="International Income Summary">
+            <SummaryRow label="Net Foreign Income Added to GTI" value={computationResult.breakdown.income.international.netIncomeAdded} />
+            <SummaryRow label="Tax on Foreign Income" value={computationResult.breakdown.income.international.taxOnIncome} />
+            <SummaryRow label="Total Foreign Tax Credit (FTC) Allowed" value={computationResult.breakdown.income.international.totalFtcAllowed} isBold />
+        </SummaryCard>
+        </>);
       case 'Set Off and Carry Forward':
           const { losses } = taxData;
           const { breakdown } = computationResult;
+          const anyLossesToCarryForward = Object.values(computationResult.lossesCarriedForward).some(loss => typeof loss === 'number' && loss > 0);
           return (<>
             <Card title="Current Year Losses (to be set-off)">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -1763,6 +1849,20 @@ export default function App() {
                     <SingleInputField label="Unabsorbed Depreciation" path="losses.broughtForward.unabsorbedDepreciation" value={losses.broughtForward.unabsorbedDepreciation} dispatch={dispatch} />
                 </div>
             </Card>
+             <SummaryCard title="Loss Set-off & Carry Forward Summary">
+                {computationResult.setOffSummary.length > 0 ? (
+                    computationResult.setOffSummary.map((item, index) => (
+                        <SummaryRow key={index} label={`Set-off: ${item.source} against ${item.against}`} value={item.amount} />
+                    ))
+                ) : (
+                    <SummaryRow label="No losses set off in the current year" value={0} />
+                )}
+                {anyLossesToCarryForward && Object.entries(computationResult.lossesCarriedForward).map(([key, value]) => {
+                    if (typeof value !== 'number' || value <= 0) return null;
+                    const label = { houseProperty: 'CF: House Property Loss', businessNonSpeculative: 'CF: Business Loss', businessSpeculative: 'CF: Speculative Loss', ltcl: 'CF: LTCL', stcl: 'CF: STCL', raceHorses: 'CF: Race Horse Loss', unabsorbedDepreciation: 'CF: Unabsorbed Depreciation' }[key] || key;
+                    return <SummaryRow key={key} label={label} value={value} isBold/>;
+                })}
+             </SummaryCard>
           </>);
       case 'Deductions':
         const { deductions } = taxData;
@@ -1796,9 +1896,13 @@ export default function App() {
                     </tbody>
                 </table>
             </Card>
+            <SummaryCard title="Deductions Summary">
+                <SummaryRow label="Total Disallowed Deductions" value={computationResult.totalDeductions} isBold />
+            </SummaryCard>
         </>);
       case 'Interest & Filing Details':
           const { interestCalc } = taxData;
+          const { interest } = computationResult;
           return (<>
             <Card title="Filing & Assessment Details">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -1825,6 +1929,12 @@ export default function App() {
                 </div>
                 <p className="text-xs text-gray-500 mt-4">Enter installment amounts (not cumulative).</p>
             </Card>
+            <SummaryCard title="Interest Calculation Summary">
+                <SummaryRow label={`Interest u/s 234A (${interest.months_234A} mos)`} value={interest.u_s_234A} />
+                <SummaryRow label={`Interest u/s 234B (${interest.months_234B} mos)`} value={interest.u_s_234B} />
+                <SummaryRow label={`Interest u/s 234C ${format234CMonths(interest.months_234C)}`} value={interest.u_s_234C} />
+                <SummaryRow label="Total Interest Payable" value={interest.totalInterest} isBold />
+            </SummaryCard>
           </>);
       case 'Income and Tax Calculator':
         return <SummaryView data={taxData} result={computationResult} />;
