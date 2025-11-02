@@ -398,6 +398,11 @@ export interface SetOffDetail {
 
 export interface InternationalIncomeComputation {
     id: string;
+    country: string;
+    nature: InternationalIncomeNature;
+    amountInINR: number;
+    taxPaidInINR: number;
+    applicableRule: string;
     indianTax: number;
     ftc90_90A: number;
     ftc91: number;

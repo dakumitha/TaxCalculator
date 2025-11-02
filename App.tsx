@@ -1,4 +1,6 @@
 
+
+
 import React, { useState, useReducer, useMemo, useEffect } from 'react';
 import { TaxData, TaxRegime, IncomeSource, ComputationResult, AssessmentType, AdditionItem, DetailedIncomeBreakdown, SetOffDetail, PresumptiveScheme, Vehicle44AE, ResidentialStatus, InternationalIncomeItem, InternationalIncomeNature, ComplianceStatus, TrustData } from './types';
 import { TABS, ASSESSMENT_YEARS, YEARLY_CONFIGS, FILING_DUE_DATES, AUDIT_TAXPAYER_TYPES } from './constants';
@@ -449,7 +451,8 @@ const DescribedIncomeTableRow: React.FC<{
             lowerDesc.includes(ex.text.toLowerCase()) || lowerDesc.includes(ex.section)
         );
         if (found) {
-            setWarning(`Note: Disallowance for ${found.text} (${ex.section}) should be entered in the 'Salary' tab for accurate computation.`);
+            // FIX: Use `found.section` instead of `ex.section`
+            setWarning(`Note: Disallowance for ${found.text} (${found.section}) should be entered in the 'Salary' tab for accurate computation.`);
         } else {
             setWarning('');
         }
@@ -504,7 +507,7 @@ const DescribedIncomeTableRow: React.FC<{
 
 const Card: React.FC<{ title: string; children: React.ReactNode, className?: string }> = ({ title, children, className }) => (
   <div className={`bg-white p-6 rounded-lg shadow-md mb-6 ${className}`}>
-    <h2 className="text-xl font-semibold text-gray-800 border-b pb-3 mb-4">{title}</h2>
+    <h2 className="text-xl font-semibold text-gray-800 border-b pb-3 mb-4 no-print">{title}</h2>
     {children}
   </div>
 );
@@ -568,15 +571,15 @@ const SummaryView: React.FC<{ data: TaxData; result: ComputationResult }> = ({ d
                 </button>
             </div>
             <div id="printable-area">
-                 <div className="print-only">
-                    <h2 className="text-2xl font-bold mb-2">Computation of Total Income</h2>
-                    <div className="grid grid-cols-3 gap-4 text-sm mb-4">
-                        <div><strong>Assessee:</strong> {data.assesseeName}</div>
-                        <div><strong>PAN:</strong> {data.pan}</div>
-                        <div><strong>Assessment Year:</strong> {data.assessmentYear}</div>
-                    </div>
-                </div>
                 <Card title="Computation Summary & Comparison" className="card-for-print">
+                    <div className="print-only mb-4 border-b pb-4">
+                        <h2 className="text-xl font-bold mb-2">Computation of Total Income</h2>
+                        <div className="grid grid-cols-3 gap-4 text-sm">
+                            <div><strong>Assessee:</strong> {data.assesseeName}</div>
+                            <div><strong>PAN:</strong> {data.pan}</div>
+                            <div><strong>Assessment Year:</strong> {data.assessmentYear}</div>
+                        </div>
+                    </div>
                     <div className="overflow-x-auto">
                         <table className="w-full text-sm">
                             <thead>
@@ -757,96 +760,97 @@ const SummaryView: React.FC<{ data: TaxData; result: ComputationResult }> = ({ d
         </button>
     </div>
     <div id="printable-area">
-        <div className="print-only">
-            <h2 className="text-2xl font-bold mb-2">Computation of Total Income</h2>
-            <div className="grid grid-cols-3 gap-4 text-sm mb-4">
-                <div><strong>Assessee:</strong> {data.assesseeName}</div>
-                <div><strong>PAN:</strong> {data.pan}</div>
-                <div><strong>Assessment Year:</strong> {data.assessmentYear}</div>
-            </div>
-        </div>
-
-        {trustResult && data.taxpayerType === 'trust' && (
-             <Card title="Trust Assessment Output" className="bg-blue-50 card-for-print">
-                <div className="space-y-3">
-                    <div className="flex justify-between p-2 rounded"><strong className="text-gray-600">Type of Trust:</strong> <span className="font-semibold text-gray-900">{trustResult.typeOfTrust}</span></div>
-                    <div className="flex justify-between p-2 rounded bg-white"><strong className="text-gray-600">Section Applied:</strong> <span className="font-semibold text-gray-900">{trustResult.sectionApplied}</span></div>
-                    <div className="flex justify-between p-2 rounded"><strong className="text-gray-600">Total Income before Disallowances:</strong> <span className="font-mono">{formatCurrency(trustResult.totalIncomeBeforeExemption)}</span></div>
-                    <div className="flex justify-between p-2 rounded bg-white"><strong className="text-gray-600">Exempt Income:</strong> <span className="font-mono text-green-700">{formatCurrency(trustResult.exemptIncome)}</span></div>
-                    <div className="flex justify-between p-2 rounded"><strong className="text-gray-600">Taxable Income:</strong> <span className="font-mono font-bold text-red-700">{formatCurrency(trustResult.taxableIncome)}</span></div>
-                    <div className="flex justify-between p-2 rounded bg-white"><strong className="text-gray-600">Applicable Rate:</strong> <span className="font-semibold text-gray-900">{trustResult.applicableRateDisplay}</span></div>
-                </div>
-                {trustResult.violationFlags.length > 0 && (
-                    <div className="mt-4 p-4 border-t border-blue-200">
-                        <h4 className="font-bold text-red-600 mb-2">Assessment Notes:</h4>
-                        <ul className="list-disc list-inside space-y-1 text-red-700 text-sm">
-                            {trustResult.violationFlags.map((flag, i) => <li key={i}>{flag}</li>)}
-                        </ul>
-                    </div>
-                )}
-             </Card>
-        )}
-
         <Card title={`Computation Summary ${data.taxpayerType !== 'trust' ? `(${data.taxRegime} Regime)` : ''}`} className="card-for-print">
-        <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-            <thead>
-                <tr className="bg-gray-200 text-gray-700">
-                <th className="p-2 text-left">Particulars</th>
-                <th className="p-2 text-right">Amount (₹)</th>
-                </tr>
-            </thead>
-            <tbody>
-                {data.interestCalc.incomeAsPerEarlierAssessment != null && (
-                    <Row label="Income as per Earlier Assessment" amount={data.interestCalc.incomeAsPerEarlierAssessment} isBold isAccent />
-                )}
-                {data.taxpayerType !== 'trust' && renderIncomeHead("Income from Salary", result.breakdown.income.salary)}
-                {renderIncomeHead("Income from House Property", result.breakdown.income.houseProperty)}
-                {renderIncomeHead("Profits and Gains of Business or Profession", result.breakdown.income.pgbp)}
-                {renderIncomeHead("Capital Gains", result.breakdown.income.capitalGains)}
-                {renderIncomeHead("Income from Other Sources", result.breakdown.income.otherSources)}
-                { result.breakdown.income.international.netIncomeAdded > 0 &&
-                    <Row label="International Income" amount={result.breakdown.income.international.netIncomeAdded} isBold />
-                }
-                {renderIncomeHead("Winnings from Lottery, etc.", result.breakdown.income.winnings)}
-                {result.breakdown.income.deemed > 0 && <Row label="Deemed Income (Sec 68-69D)" amount={result.breakdown.income.deemed} isBold isAccent />}
-                <Row label="Gross Total Income" amount={result.grossTotalIncome} isBold isAccent />
-                {result.totalDeductions > 0 &&
-                    <Row label="Add: Disallowed Deductions under Chapter VI-A" amount={result.totalDeductions} />
-                }
-                <Row label="Net Taxable Income" amount={result.netTaxableIncome} isBold isAccent />
-                
-                <Row label="Tax on Total Income (before Surcharge)" amount={result.taxLiability} />
-                {result.breakdown.surchargeBreakdown?.onOtherIncomeGross > 0 && (
-                    <Row label="Add: Surcharge on Other Income" amount={result.breakdown.surchargeBreakdown.onOtherIncomeGross} />
-                )}
-                {result.breakdown.surchargeBreakdown?.onDeemedIncome > 0 && (
-                    <Row label="Add: Surcharge on Deemed Income" amount={result.breakdown.surchargeBreakdown.onDeemedIncome} />
-                )}
-                {result.marginalRelief > 0 && <Row label="Less: Marginal Relief" amount={result.marginalRelief} isNegative />}
-                {(result.breakdown.surchargeBreakdown?.onOtherIncomeGross > 0 || result.breakdown.surchargeBreakdown?.onDeemedIncome > 0) &&
-                <Row label="Tax and Surcharge" amount={result.taxLiability + result.surcharge} isBold />
-                }
-                
-                {result.rebate87A > 0 && <Row label="Less: Rebate u/s 87A" amount={result.rebate87A} isNegative />}
-                <Row label="Health & Education Cess" amount={result.healthAndEducationCess} />
-                <Row label="Total Tax Liability (before FTC)" amount={result.totalTaxPayable + result.relief} isBold isAccent/>
-                {result.relief > 0 && <Row label="Less: Reliefs (FTC)" amount={result.relief} isNegative />}
-                <Row label="Final Tax Liability" amount={result.totalTaxPayable} isBold isAccent/>
+            <div className="print-only mb-4 border-b pb-4">
+                <h2 className="text-xl font-bold mb-2">Computation of Total Income</h2>
+                <div className="grid grid-cols-3 gap-4 text-sm">
+                    <div><strong>Assessee:</strong> {data.assesseeName}</div>
+                    <div><strong>PAN:</strong> {data.pan}</div>
+                    <div><strong>Assessment Year:</strong> {data.assessmentYear}</div>
+                </div>
+            </div>
 
-                <Row label={<>Interest u/s 234A <span className="text-gray-500 text-xs">({result.interest.months_234A} mos)</span></>} amount={result.interest.u_s_234A} />
-                <Row label={<>Interest u/s 234B <span className="text-gray-500 text-xs">({result.interest.months_234B} mos)</span></>} amount={result.interest.u_s_234B} />
-                <Row label={<>Interest u/s 234C <span className="text-gray-500 text-xs">{format234CMonths(result.interest.months_234C)}</span></>} amount={result.interest.u_s_234C} />
-                <Row label="Total Interest" amount={result.interest.totalInterest} isBold isAccent />
-                <Row label="Less: TDS / TCS" amount={data.tds ?? 0} isNegative />
-                <Row label="Less: Advance Tax" amount={data.advanceTax ?? 0} isNegative />
-                <tr className="font-bold text-lg bg-blue-100">
-                <td className="p-3 text-left">{result.netPayable >= 0 ? 'Net Tax Payable' : 'Refund Due'}</td>
-                <td className="p-3 text-right">{formatCurrency(Math.abs(result.netPayable))}</td>
-                </tr>
-            </tbody>
-            </table>
-        </div>
+            {trustResult && data.taxpayerType === 'trust' && (
+                 <div className="bg-blue-50 p-4 rounded-lg mb-4">
+                    <h3 className="text-lg font-bold text-blue-800 mb-2">Trust Assessment Output</h3>
+                    <div className="space-y-3">
+                        <div className="flex justify-between p-2 rounded"><strong className="text-gray-600">Type of Trust:</strong> <span className="font-semibold text-gray-900">{trustResult.typeOfTrust}</span></div>
+                        <div className="flex justify-between p-2 rounded bg-white"><strong className="text-gray-600">Section Applied:</strong> <span className="font-semibold text-gray-900">{trustResult.sectionApplied}</span></div>
+                        <div className="flex justify-between p-2 rounded"><strong className="text-gray-600">Total Income before Disallowances:</strong> <span className="font-mono">{formatCurrency(trustResult.totalIncomeBeforeExemption)}</span></div>
+                        <div className="flex justify-between p-2 rounded bg-white"><strong className="text-gray-600">Exempt Income:</strong> <span className="font-mono text-green-700">{formatCurrency(trustResult.exemptIncome)}</span></div>
+                        <div className="flex justify-between p-2 rounded"><strong className="text-gray-600">Taxable Income:</strong> <span className="font-mono font-bold text-red-700">{formatCurrency(trustResult.taxableIncome)}</span></div>
+                        <div className="flex justify-between p-2 rounded bg-white"><strong className="text-gray-600">Applicable Rate:</strong> <span className="font-semibold text-gray-900">{trustResult.applicableRateDisplay}</span></div>
+                    </div>
+                    {trustResult.violationFlags.length > 0 && (
+                        <div className="mt-4 p-4 border-t border-blue-200">
+                            <h4 className="font-bold text-red-600 mb-2">Assessment Notes:</h4>
+                            <ul className="list-disc list-inside space-y-1 text-red-700 text-sm">
+                                {trustResult.violationFlags.map((flag, i) => <li key={i}>{flag}</li>)}
+                            </ul>
+                        </div>
+                    )}
+                 </div>
+            )}
+
+            <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                <thead>
+                    <tr className="bg-gray-200 text-gray-700">
+                    <th className="p-2 text-left">Particulars</th>
+                    <th className="p-2 text-right">Amount (₹)</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {data.interestCalc.incomeAsPerEarlierAssessment != null && (
+                        <Row label="Income as per Earlier Assessment" amount={data.interestCalc.incomeAsPerEarlierAssessment} isBold isAccent />
+                    )}
+                    {data.taxpayerType !== 'trust' && data.taxpayerType !== 'huf' && renderIncomeHead("Income from Salary", result.breakdown.income.salary)}
+                    {renderIncomeHead("Income from House Property", result.breakdown.income.houseProperty)}
+                    {renderIncomeHead("Profits and Gains of Business or Profession", result.breakdown.income.pgbp)}
+                    {renderIncomeHead("Capital Gains", result.breakdown.income.capitalGains)}
+                    {renderIncomeHead("Income from Other Sources", result.breakdown.income.otherSources)}
+                    { result.breakdown.income.international.netIncomeAdded > 0 &&
+                        <Row label="International Income" amount={result.breakdown.income.international.netIncomeAdded} isBold />
+                    }
+                    {renderIncomeHead("Winnings from Lottery, etc.", result.breakdown.income.winnings)}
+                    {result.breakdown.income.deemed > 0 && <Row label="Deemed Income (Sec 68-69D)" amount={result.breakdown.income.deemed} isBold isAccent />}
+                    <Row label="Gross Total Income" amount={result.grossTotalIncome} isBold isAccent />
+                    {result.totalDeductions > 0 &&
+                        <Row label="Add: Disallowed Deductions under Chapter VI-A" amount={result.totalDeductions} />
+                    }
+                    <Row label="Net Taxable Income" amount={result.netTaxableIncome} isBold isAccent />
+                    
+                    <Row label="Tax on Total Income (before Surcharge)" amount={result.taxLiability} />
+                    {result.breakdown.surchargeBreakdown?.onOtherIncomeGross > 0 && (
+                        <Row label="Add: Surcharge on Other Income" amount={result.breakdown.surchargeBreakdown.onOtherIncomeGross} />
+                    )}
+                    {result.breakdown.surchargeBreakdown?.onDeemedIncome > 0 && (
+                        <Row label="Add: Surcharge on Deemed Income" amount={result.breakdown.surchargeBreakdown.onDeemedIncome} />
+                    )}
+                    {result.marginalRelief > 0 && <Row label="Less: Marginal Relief" amount={result.marginalRelief} isNegative />}
+                    {(result.breakdown.surchargeBreakdown?.onOtherIncomeGross > 0 || result.breakdown.surchargeBreakdown?.onDeemedIncome > 0) &&
+                    <Row label="Tax and Surcharge" amount={result.taxLiability + result.surcharge} isBold />
+                    }
+                    
+                    {result.rebate87A > 0 && <Row label="Less: Rebate u/s 87A" amount={result.rebate87A} isNegative />}
+                    <Row label="Health & Education Cess" amount={result.healthAndEducationCess} />
+                    <Row label="Total Tax Liability (before FTC)" amount={result.totalTaxPayable + result.relief} isBold isAccent/>
+                    {result.relief > 0 && <Row label="Less: Reliefs (FTC)" amount={result.relief} isNegative />}
+                    <Row label="Final Tax Liability" amount={result.totalTaxPayable} isBold isAccent/>
+
+                    <Row label={<>Interest u/s 234A <span className="text-gray-500 text-xs">({result.interest.months_234A} mos)</span></>} amount={result.interest.u_s_234A} />
+                    <Row label={<>Interest u/s 234B <span className="text-gray-500 text-xs">({result.interest.months_234B} mos)</span></>} amount={result.interest.u_s_234B} />
+                    <Row label={<>Interest u/s 234C <span className="text-gray-500 text-xs">{format234CMonths(result.interest.months_234C)}</span></>} amount={result.interest.u_s_234C} />
+                    <Row label="Total Interest" amount={result.interest.totalInterest} isBold isAccent />
+                    <Row label="Less: TDS / TCS" amount={data.tds ?? 0} isNegative />
+                    <Row label="Less: Advance Tax" amount={data.advanceTax ?? 0} isNegative />
+                    <tr className="font-bold text-lg bg-blue-100">
+                    <td className="p-3 text-left">{result.netPayable >= 0 ? 'Net Tax Payable' : 'Refund Due'}</td>
+                    <td className="p-3 text-right">{formatCurrency(Math.abs(result.netPayable))}</td>
+                    </tr>
+                </tbody>
+                </table>
+            </div>
         </Card>
 
         {result.setOffSummary.length > 0 &&
@@ -961,10 +965,24 @@ const RadioGroup: React.FC<{ label: string, path: string, value: boolean | null,
 export default function App() {
   const [activeTab, setActiveTab] = useState('Assessee Details');
   const [taxData, dispatch] = useReducer(taxDataReducer, initialTaxData);
+  const [panError, setPanError] = useState('');
+
+  const handlePanChange = (pan: string) => {
+    const upperPan = pan.toUpperCase();
+    dispatch({type: 'UPDATE_FIELD', payload: {path: 'pan', value: upperPan}});
+    const panRegex = /[A-Z]{5}[0-9]{4}[A-Z]{1}/;
+    if (upperPan && !panRegex.test(upperPan)) {
+        setPanError('Invalid PAN format. Should be ABCDE1234F.');
+    } else {
+        setPanError('');
+    }
+  };
+
 
   const handleReset = () => {
     if (window.confirm('Are you sure you want to reset all data? This action cannot be undone.')) {
       dispatch({ type: 'RESET_STATE', payload: initialTaxData });
+      setPanError('');
       setActiveTab('Assessee Details');
     }
   };
@@ -997,11 +1015,12 @@ export default function App() {
 
   
   const isIndividualLike = ['individual', 'huf', 'aop', 'boi', 'artificial juridical person'].includes(taxData.taxpayerType);
-  const salaryIsApplicable = ['individual', 'huf'].includes(taxData.taxpayerType);
+  const salaryIsApplicable = taxData.taxpayerType === 'individual'; // HUF also doesn't have salary income.
+  const salaryTabVisible = taxData.taxpayerType === 'individual';
 
 
   const dynamicTabs = TABS.filter(tab => {
-    if (tab === 'Salary' && !salaryIsApplicable) return false;
+    if (tab === 'Salary' && !salaryTabVisible) return false;
     return true;
   });
 
@@ -1028,7 +1047,8 @@ export default function App() {
                </div>
                <div>
                  <label className="block text-gray-600 font-medium text-sm mb-1">PAN</label>
-                 <input type="text" value={taxData.pan} onChange={e => dispatch({type: 'UPDATE_FIELD', payload: {path: 'pan', value: e.target.value.toUpperCase()}})} className="w-full p-2 border rounded-md uppercase" maxLength={10} />
+                 <input type="text" value={taxData.pan} onChange={e => handlePanChange(e.target.value)} className={`w-full p-2 border rounded-md uppercase ${panError ? 'border-red-500' : 'border-gray-300'}`} maxLength={10} />
+                 {panError && <p className="text-red-500 text-xs mt-1">{panError}</p>}
                </div>
                
                 <div>
@@ -1085,7 +1105,7 @@ export default function App() {
             </div>
           </Card>
           
-           <Card title="Profile Adjustments">
+           <Card title="Exempt Income u/s 10 Disallowed">
                 <table className="w-full table-fixed">
                      <thead className="bg-gray-100 text-xs text-gray-500 uppercase">
                         <tr>
@@ -1687,7 +1707,7 @@ export default function App() {
                                     <input type="text" value={item.applicableDtaaArticle} onChange={e => handleUpdate(item.id, 'applicableDtaaArticle', e.target.value)} className="w-full p-2 border rounded-md text-sm" />
                                 </FormField>
                                 <FormField label="Rate as per DTAA (%)">
-                                    <input type="number" step="0.01" value={item.taxRateAsPerDtaa != null ? item.taxRateAsPerDtaa * 100 : ''} onChange={e => handleUpdate(item.id, 'taxRateAsPerDtaa', e.target.value ? parseFloat(e.target.value)/100 : null)} className="w-full p-2 border rounded-md text-sm text-left" />
+                                     <input type="number" step="any" value={item.taxRateAsPerDtaa != null ? Number((item.taxRateAsPerDtaa * 100).toPrecision(12)) : ''} onChange={e => handleUpdate(item.id, 'taxRateAsPerDtaa', e.target.value ? parseFloat(e.target.value)/100 : null)} className="w-full p-2 border rounded-md text-sm text-left" />
                                 </FormField>
                             </div>}
                         </div>
@@ -1723,47 +1743,45 @@ export default function App() {
                 
                 {internationalIncome.length > 0 && 
                 <div className="mt-6 border-t pt-4">
-                    <h3 className="font-semibold text-lg mb-2 text-gray-800">FTC Computation Summary</h3>
+                    <h3 className="font-semibold text-lg mb-2 text-gray-800">FTC Computation Summary Schedule</h3>
                      <div className="overflow-x-auto">
                         <table className="w-full text-sm">
                             <thead className="bg-gray-100 text-xs text-gray-500 uppercase">
                                 <tr>
-                                    <th className="p-2 text-left">Country</th>
-                                    <th className="p-2 text-right">Indian Tax on Foreign Income</th>
-                                    <th className="p-2 text-right">FTC u/s 90/90A (DTAA)</th>
-                                    <th className="p-2 text-right">FTC u/s 91 (Non-DTAA)</th>
-                                    <th className="p-2 text-right">Total FTC Allowed</th>
+                                    <th className="p-2 text-left">Country / Nature</th>
+                                    <th className="p-2 text-right">Amount (INR)</th>
+                                    <th className="p-2 text-right">Tax Paid (INR)</th>
+                                    <th className="p-2 text-left">Applicable Rule</th>
+                                    <th className="p-2 text-right">Indian Tax</th>
+                                    <th className="p-2 text-right">FTC Allowed</th>
+                                    <th className="p-2 text-right">Net Tax</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                {internationalIncome.map(item => {
-                                    const itemResult = intlResult.itemized.find(r => r.id === item.id);
-                                    if (!itemResult) return <tr key={item.id}><td colSpan={5} className="p-2 text-center text-gray-500">Calculating...</td></tr>;
-                                    return (
-                                        <tr key={item.id} className="border-b">
-                                            <td className="p-2">{item.country || 'N/A'}</td>
-                                            <td className="p-2 text-right">{formatCurrency(itemResult.indianTax)}</td>
-                                            <td className="p-2 text-right">{formatCurrency(itemResult.ftc90_90A)}</td>
-                                            <td className="p-2 text-right">{formatCurrency(itemResult.ftc91)}</td>
-                                            <td className="p-2 text-right font-bold">{formatCurrency(itemResult.totalFtc)}</td>
-                                        </tr>
-                                    )
-                                })}
+                                {intlResult.itemized.map(itemResult => (
+                                    <tr key={itemResult.id} className="border-b">
+                                        <td className="p-2">{itemResult.country || 'N/A'}<br/><span className="text-xs text-gray-500">{itemResult.nature}</span></td>
+                                        <td className="p-2 text-right">{formatCurrency(itemResult.amountInINR)}</td>
+                                        <td className="p-2 text-right">{formatCurrency(itemResult.taxPaidInINR)}</td>
+                                        <td className="p-2 text-left">{itemResult.applicableRule}</td>
+                                        <td className="p-2 text-right">{formatCurrency(itemResult.indianTax)}</td>
+                                        <td className="p-2 text-right text-green-700 font-bold">{formatCurrency(itemResult.totalFtc)}</td>
+                                        <td className="p-2 text-right font-bold">{formatCurrency(itemResult.netTax)}</td>
+                                    </tr>
+                                ))}
                             </tbody>
                              <tfoot className="font-bold bg-gray-200">
                                 <tr>
                                     <td className="p-2 text-left">Total</td>
+                                    <td className="p-2 text-right">{formatCurrency(intlResult.netIncomeAdded)}</td>
+                                    <td className="p-2 text-right"></td>
+                                    <td className="p-2 text-left"></td>
                                     <td className="p-2 text-right">{formatCurrency(intlResult.taxOnIncome)}</td>
-                                    <td colSpan={2} className="p-2"></td>
                                     <td className="p-2 text-right">{formatCurrency(intlResult.totalFtcAllowed)}</td>
+                                    <td className="p-2 text-right">{formatCurrency(intlResult.taxOnIncome - intlResult.totalFtcAllowed)}</td>
                                 </tr>
                             </tfoot>
                         </table>
-                    </div>
-                     <div className="mt-4 space-y-2 p-4 bg-gray-100 rounded-lg">
-                         <div className="flex justify-between font-semibold"><span>Total Net Foreign Income Added</span><span className="font-mono">₹ {formatCurrency(intlResult.netIncomeAdded)}</span></div>
-                         <div className="flex justify-between"><span>Total Indian Tax on Foreign Income</span><span className="font-mono">₹ {formatCurrency(intlResult.taxOnIncome)}</span></div>
-                         <div className="flex justify-between font-bold text-green-700"><span>Total Foreign Tax Credit (FTC) Allowed</span><span className="font-mono">₹ {formatCurrency(intlResult.totalFtcAllowed)}</span></div>
                     </div>
                 </div>
                 }
@@ -1955,33 +1973,33 @@ export default function App() {
 
   return (
     <div className="bg-gray-100 min-h-screen">
-      <header className="bg-gray-800 text-white shadow-md no-print">
-        <div className="container mx-auto px-4 py-3 flex justify-between items-center">
-            <h1 className="text-2xl font-bold">AO Tax Tool: <span className="text-blue-300 capitalize">{taxData.taxpayerType.replace('_', ' / ')}</span></h1>
-             <div className="flex items-center gap-4">
-                <button onClick={handleReset} className="bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded-md text-sm">Reset</button>
-                <div className="text-right">
-                    <label htmlFor="ay-select" className="text-xs text-gray-400 block">Assessment Year</label>
+       <header className="bg-gradient-to-r from-gray-700 to-gray-900 text-white shadow-md no-print">
+        <div className="container mx-auto px-4 py-2 flex justify-between items-center">
+            <h1 className="text-xl font-semibold">AO Tax Tool: <span className="text-blue-300 capitalize">{taxData.taxpayerType.replace(/_/g, ' / ')}</span></h1>
+             <div className="flex items-center gap-3">
+                <div className="flex items-center gap-2">
+                    <label htmlFor="ay-select" className="text-xs text-gray-300">A.Y.</label>
                     <select 
                         id="ay-select"
                         value={taxData.assessmentYear}
                         onChange={e => dispatch({type: 'UPDATE_FIELD', payload: {path: 'assessmentYear', value: e.target.value}})}
-                        className="bg-gray-700 border border-gray-600 rounded-md p-1 text-sm focus:ring-blue-500 focus:border-blue-500"
+                        className="bg-gray-800 border border-gray-600 rounded-md p-1 text-sm focus:ring-blue-500 focus:border-blue-500"
                     >
                         {ASSESSMENT_YEARS.map(year => <option key={year} value={year}>{year}</option>)}
                     </select>
                 </div>
+                <button onClick={handleReset} className="bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded-md text-sm">Reset</button>
             </div>
         </div>
       </header>
 
       <div className="bg-white border-b border-gray-200 sticky top-0 z-10 no-print">
-          <nav className="container mx-auto px-2 -mb-px flex space-x-1 sm:space-x-4 overflow-x-auto">
+          <nav className="container mx-auto px-2 -mb-px flex space-x-1 sm:space-x-2 overflow-x-auto">
               {dynamicTabs.map(tab => (
                   <button
                       key={tab}
                       onClick={() => setActiveTab(tab)}
-                      className={`whitespace-nowrap py-4 px-2 sm:px-3 border-b-2 font-medium text-sm transition-colors duration-200 ${
+                      className={`whitespace-nowrap py-3 px-2 sm:px-3 border-b-2 font-medium text-xs sm:text-sm transition-colors duration-200 ${
                           activeTab === tab
                               ? 'border-blue-500 text-blue-600'
                               : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'

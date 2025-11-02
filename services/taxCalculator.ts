@@ -1,4 +1,5 @@
 
+
 import { TaxData, ComputationResult, CapitalGainsBreakdown, TaxRegime, InterestResult, IncomeSource, DetailedIncomeBreakdown, SetOffDetail, PresumptiveScheme, ResidentialStatus, AdditionItem, InternationalIncomeNature, InternationalIncomeItem, InternationalIncomeComputation, TrustData, TrustComputationResult } from '../types';
 import { YEARLY_CONFIGS } from '../constants';
 
@@ -444,107 +445,78 @@ export function calculateTax(data: TaxData): ComputationResult {
   const agriculturalIncome = getTaxableValue(data.otherSources.exemptIncome, residentialStatus);
   const deemedIncome = Object.values(data.deemedIncome).reduce((acc, val) => acc + getTaxableValue(val, residentialStatus), 0);
 
-  // --- Process International Income (Part 1: Segregate into pools) ---
-    let netForeignIncomeAdded = 0;
-    const foreignSlabIncomePool = { salary: 0, pgbp: 0, stcg: 0, ltcg: 0, other: 0 };
-    const processedIntlItems: any[] = []; // Store items with their calculated taxable amount and rate type
+  // --- Process International Income (Part 1: Determine taxability and filter) ---
+  const processedIntlItems: any[] = [];
+  data.internationalIncome.forEach(item => {
+      let isTaxable = false;
+      let applicableRule = '';
+      const taxableAmountInr = (item.transferPricing.isAssociatedEnterprise ? item.transferPricing.armsLengthPrice : item.amountInINR) ?? 0;
 
-    data.internationalIncome.forEach(item => {
-        const incomeInr = item.amountInINR ?? 0;
-        let taxableAmountInr = incomeInr;
+      switch (residentialStatus) {
+          case 'resident_ordinarily_resident':
+              isTaxable = true;
+              break;
+          case 'resident_not_ordinarily_resident':
+              // Taxable if it's from a business controlled from India. Otherwise, assume not received/accrued in India.
+              if (item.nature === InternationalIncomeNature.BusinessProfessionalIncome && data.pgbp.isControlledFromIndia) {
+                  isTaxable = true;
+                  applicableRule = 'Taxable (Business controlled from India)';
+              } else {
+                  isTaxable = false;
+                  applicableRule = 'Not Taxable (RNOR - Assumed received outside India)';
+              }
+              break;
+          case 'non_resident':
+              isTaxable = false;
+              applicableRule = 'Not Taxable (NR)';
+              break;
+      }
 
-        // Apply Transfer Pricing Adjustment for Business Income
-        if (item.nature === InternationalIncomeNature.BusinessProfessionalIncome && item.transferPricing.isAssociatedEnterprise) {
-            taxableAmountInr = item.transferPricing.armsLengthPrice ?? incomeInr;
-        }
-        
-        netForeignIncomeAdded += taxableAmountInr;
+      if (isTaxable && item.dtaaApplicable && item.taxRateAsPerDtaa === 0) {
+          isTaxable = false;
+          applicableRule = `Exempt under DTAA Art. ${item.applicableDtaaArticle || 'N/A'}`;
+      }
+      
+      processedIntlItems.push({ ...item, isTaxable, taxableAmountInr, applicableRule });
+  });
 
-        let indianTaxRate = 0;
-        let isSpecialRate = true;
-        
-        switch (item.specialSection) {
-            case '115A':
-                if ([InternationalIncomeNature.Dividend, InternationalIncomeNature.InterestIncome].includes(item.nature)) {
-                    indianTaxRate = yearConfig.TAX_RATES.FOREIGN_INCOME_115A_DIVIDEND_INTEREST;
-                } else if (item.nature === InternationalIncomeNature.Royalty || item.nature === InternationalIncomeNature.FeesForTechnicalServices) {
-                    indianTaxRate = yearConfig.TAX_RATES.FOREIGN_INCOME_115A_ROYALTY_FTS;
-                }
-                break;
-            case '115AB':
-                 if (item.nature === InternationalIncomeNature.LongTermCapitalGain || item.nature === InternationalIncomeNature.ShortTermCapitalGain) {
-                    indianTaxRate = yearConfig.TAX_RATES.OFFSHORE_FUND_UNITS_LTCG_115AB;
-                 } else { // Units Income
-                    indianTaxRate = yearConfig.TAX_RATES.OFFSHORE_FUND_UNITS_INCOME_115AB;
-                 }
-                break;
-            case '115AC': case '115ACA':
-                 if (item.nature === InternationalIncomeNature.LongTermCapitalGain || item.nature === InternationalIncomeNature.ShortTermCapitalGain) {
-                    indianTaxRate = yearConfig.TAX_RATES.GDR_FCCB_LTCG_115AC_ACA;
-                 } else { // GDR/Bond Income
-                    indianTaxRate = yearConfig.TAX_RATES.GDR_FCCB_INCOME_115AC_ACA;
-                 }
-                break;
-            case '115AD': // FII / FPI
-                 if (item.nature === InternationalIncomeNature.LongTermCapitalGain || item.nature === InternationalIncomeNature.ShortTermCapitalGain) {
-                    indianTaxRate = item.isLTCG ? yearConfig.TAX_RATES.FII_FPI_LTCG_115AD : yearConfig.TAX_RATES.FII_FPI_STCG_OTHER_115AD;
-                 } else if (item.nature === InternationalIncomeNature.InterestIncome) {
-                    indianTaxRate = yearConfig.TAX_RATES.FII_FPI_INTEREST_115AD;
-                 }
-                break;
-            case '115AE':
-                indianTaxRate = yearConfig.TAX_RATES.SPECIFIED_FUND_UNITS_INCOME_115AE;
-                break;
-            case '115BBA':
-                indianTaxRate = yearConfig.TAX_RATES.FOREIGN_INCOME_115BBA;
-                break;
-        }
-        
-        if (indianTaxRate === 0) {
-            isSpecialRate = false;
-        }
+  const taxableIntlItems = processedIntlItems.filter(item => item.isTaxable);
+  const netForeignIncomeAdded = taxableIntlItems.reduce((sum, item) => sum + item.taxableAmountInr, 0);
 
-        processedIntlItems.push({ ...item, taxableAmountInr, isSpecialRate, indianTaxRate });
-        
-        if (!isSpecialRate) {
-            switch(item.nature) {
-                case InternationalIncomeNature.Salary: foreignSlabIncomePool.salary += taxableAmountInr; break;
-                case InternationalIncomeNature.BusinessProfessionalIncome: foreignSlabIncomePool.pgbp += taxableAmountInr; break;
-                case InternationalIncomeNature.LongTermCapitalGain:
-                    foreignSlabIncomePool.ltcg += taxableAmountInr;
-                    break;
-                case InternationalIncomeNature.ShortTermCapitalGain:
-                    foreignSlabIncomePool.stcg += taxableAmountInr;
-                    break;
-                case InternationalIncomeNature.HouseProperty:
-                case InternationalIncomeNature.InterestIncome:
-                case InternationalIncomeNature.Dividend:
-                case InternationalIncomeNature.Royalty:
-                case InternationalIncomeNature.FeesForTechnicalServices:
-                case InternationalIncomeNature.Others:
-                    foreignSlabIncomePool.other += taxableAmountInr;
-                    break;
-            }
-        }
-    });
-
-  // --- Loss Set-off Logic ---
+  // --- Initialize Income Pool with Domestic & Foreign Income ---
   const incomePool = {
-    salary: Math.max(0, assessedSalaryNet) + foreignSlabIncomePool.salary,
+    salary: Math.max(0, assessedSalaryNet),
     hp: Math.max(0, housePropertyResult.income),
-    pgbpNonSpeculative: Math.max(0, assessedPgbpNonSpeculativeIncome) + foreignSlabIncomePool.pgbp,
+    pgbpNonSpeculative: Math.max(0, assessedPgbpNonSpeculativeIncome),
     pgbpSpeculative: Math.max(0, assessedSpeculativeIncome),
     stcg111A: getTaxableValue(data.capitalGains.stcg111A, residentialStatus),
-    stcgOther: getTaxableValue(data.capitalGains.stcgOther, residentialStatus) + foreignSlabIncomePool.stcg,
+    stcgOther: getTaxableValue(data.capitalGains.stcgOther, residentialStatus),
     ltcg112A: getTaxableValue(data.capitalGains.ltcg112A, residentialStatus),
-    ltcgOther: getTaxableValue(data.capitalGains.ltcgOther, residentialStatus) + foreignSlabIncomePool.ltcg,
-    otherSources: totalOtherSourcesAssessed + foreignSlabIncomePool.other,
+    ltcgOther: getTaxableValue(data.capitalGains.ltcgOther, residentialStatus),
+    otherSources: totalOtherSourcesAssessed,
     raceHorseIncome: Math.max(0, assessedRaceHorseIncome),
     winnings: getTaxableValue(data.otherSources.winnings, residentialStatus),
   };
-   // Add additions to respective pools
-  incomePool.stcgOther += totalCapitalGainsAdditions; // Assuming all additions are 'other' for simplicity
-  
+  incomePool.stcgOther += totalCapitalGainsAdditions;
+
+  taxableIntlItems.forEach(item => {
+        switch(item.nature) {
+            case InternationalIncomeNature.Salary: incomePool.salary += item.taxableAmountInr; break;
+            case InternationalIncomeNature.BusinessProfessionalIncome: incomePool.pgbpNonSpeculative += item.taxableAmountInr; break;
+            case InternationalIncomeNature.LongTermCapitalGain: incomePool.ltcgOther += item.taxableAmountInr; break;
+            case InternationalIncomeNature.ShortTermCapitalGain: incomePool.stcgOther += item.taxableAmountInr; break;
+            case InternationalIncomeNature.HouseProperty: 
+            case InternationalIncomeNature.InterestIncome:
+            case InternationalIncomeNature.Dividend:
+            case InternationalIncomeNature.Royalty:
+            case InternationalIncomeNature.FeesForTechnicalServices:
+            case InternationalIncomeNature.Others:
+                incomePool.otherSources += item.taxableAmountInr; break;
+        }
+  });
+
+
+  // --- Loss Set-off Logic ---
   const lossPool = {
       current: {
           hp: Math.abs(Math.min(0, housePropertyResult.income)),
@@ -644,16 +616,10 @@ export function calculateTax(data: TaxData): ComputationResult {
   let marginalRelief = 0;
   const taxBreakdownForInterest: ComputationResult['breakdown']['tax'] = { onNormalIncome: 0, onSTCG111A: 0, onLTCG112A: 0, onLTCGOther: 0, onWinnings: 0, onDeemedIncome: 0, onForeignIncome: 0 };
   
-  // Initialize international results here to be available in both branches
-  const itemizedInternationalResults: InternationalIncomeComputation[] = [];
-  let totalFtcAllowed = 0;
-
-
   if (data.taxpayerType === 'trust') {
       trustComputation = calculateTrustTax(data.trustData, grossTotalIncome, residentialStatus, yearConfig);
       netTaxableIncome = trustComputation.taxableIncome;
       baseTaxBeforeSurcharge = trustComputation.finalTax;
-      // Surcharge for Trusts/AOPs needs to be calculated
       const trustSurchargeRates = yearConfig.aop.SURCHARGE_RATES;
       let applicableRate = 0;
       for (const slab of [...trustSurchargeRates].reverse()) {
@@ -663,8 +629,6 @@ export function calculateTax(data: TaxData): ComputationResult {
         }
       }
       totalSurcharge = baseTaxBeforeSurcharge * applicableRate;
-      // Note: Marginal relief and rebate for trusts are complex and not fully implemented here.
-
   } else { // Standard Taxpayer Logic
       const taxOnDeemedIncomeRaw = deemedIncome * yearConfig.TAX_RATES.DEEMED_INCOME_115BBE;
       const surchargeOnDeemedIncome = taxOnDeemedIncomeRaw * yearConfig.TAX_RATES.DEEMED_INCOME_SURCHARGE;
@@ -682,15 +646,16 @@ export function calculateTax(data: TaxData): ComputationResult {
       taxBreakdownForInterest.onSTCG111A = taxOnSTCG111A;
 
       const domesticSpecialIncome = incomePool.winnings + incomePool.ltcg112A + incomePool.ltcgOther + incomePool.stcg111A + deemedIncome;
-      const normalIncome = Math.max(0, netTaxableIncome - domesticSpecialIncome - netForeignIncomeAdded);
+      const normalIncome = Math.max(0, netTaxableIncome - domesticSpecialIncome);
 
       let taxOnNormalIncome = 0;
+      let slabs: { limit: number; rate: number }[] | null = null;
       
       switch (data.taxpayerType) {
         case 'individual': case 'huf': case 'aop': case 'boi': case 'artificial juridical person':
             const entityConfig = yearConfig[data.taxpayerType] || yearConfig.individual;
             const ageKey = data.taxpayerType === 'individual' ? data.age : 'below60';
-            const slabs = entityConfig.SLABS[data.taxRegime][ageKey];
+            slabs = entityConfig.SLABS[data.taxRegime][ageKey];
             taxOnNormalIncome = calculateTaxOnIncome(normalIncome, slabs);
             break;
         case 'firm': case 'llp': case 'local authority':
@@ -706,86 +671,30 @@ export function calculateTax(data: TaxData): ComputationResult {
       }
       taxBreakdownForInterest.onNormalIncome = taxOnNormalIncome;
 
-      // --- Process International Income (Part 2: Calculate Tax) ---
-      const averageTaxRateOnNormalIncome = normalIncome > 0 ? taxOnNormalIncome / normalIncome : 0;
-      let taxOnForeignIncome = 0;
-      const taxedIntlItems: any[] = [];
-
-        processedIntlItems.forEach(item => {
-            let finalApplicableRate = 0;
-            if (item.isSpecialRate) {
-                finalApplicableRate = item.indianTaxRate;
-            } else {
-                finalApplicableRate = averageTaxRateOnNormalIncome;
-            }
-
-            if (item.form67Filed && item.dtaaApplicable && item.taxRateAsPerDtaa != null) {
-                finalApplicableRate = Math.min(finalApplicableRate, item.taxRateAsPerDtaa);
-            }
-            
-            const taxOnThisItem = item.taxableAmountInr * finalApplicableRate;
-            taxOnForeignIncome += taxOnThisItem;
-            taxedIntlItems.push({ ...item, taxOnThisItem, finalApplicableRate });
-        });
-      taxBreakdownForInterest.onForeignIncome = taxOnForeignIncome;
-
-      const taxOnOtherIncomes = taxOnNormalIncome + taxOnSTCG111A + taxOnLTCG112A + taxOnLTCGOther + taxOnWinnings + taxOnForeignIncome;
-      baseTaxBeforeSurcharge = taxOnOtherIncomes + taxOnDeemedIncomeRaw;
+      baseTaxBeforeSurcharge = taxOnNormalIncome + taxOnSTCG111A + taxOnLTCG112A + taxOnLTCGOther + taxOnWinnings + taxOnDeemedIncomeRaw;
 
       // Surcharge & Marginal Relief Calculation
-      let surchargeRates;
-      let grossSurcharge = 0;
-      
+      let surchargeRates; let grossSurcharge = 0;
       switch (data.taxpayerType) {
           case 'individual': case 'huf': case 'aop': case 'boi': case 'artificial juridical person':
               const entityConfig = yearConfig[data.taxpayerType] || yearConfig.individual;
               surchargeRates = (data.taxRegime === 'New' && entityConfig.SURCHARGE_RATES_NEW) ? entityConfig.SURCHARGE_RATES_NEW : entityConfig.SURCHARGE_RATES;
               break;
-          case 'firm': case 'llp': case 'local authority':
-              surchargeRates = yearConfig[data.taxpayerType].SURCHARGE_RATES;
-              break;
-          case 'company':
-              surchargeRates = yearConfig.company[data.companyType].SURCHARGE_RATES;
-              break;
+          default: surchargeRates = yearConfig[data.taxpayerType]?.SURCHARGE_RATES || yearConfig.company?.[data.companyType as 'domestic' | 'foreign']?.SURCHARGE_RATES;
       }
 
-      if (surchargeRates) {
-        let applicableRate = 0;
-        let threshold = 0;
-        for (const slab of [...surchargeRates].reverse()) {
-            if (netTaxableIncome > slab.limit) {
-                applicableRate = slab.rate;
-                threshold = slab.limit;
-                break;
-            }
-        }
+      if (surchargeRates && slabs) {
+        const taxOnOtherIncomes = baseTaxBeforeSurcharge - taxOnDeemedIncomeRaw;
+        let applicableRate = 0; let threshold = 0;
+        for (const slab of [...surchargeRates].reverse()) { if (netTaxableIncome > slab.limit) { applicableRate = slab.rate; threshold = slab.limit; break; } }
         if (applicableRate > 0) {
             grossSurcharge = taxOnOtherIncomes * applicableRate;
-            const incomeAboveThreshold = netTaxableIncome - threshold;
             const taxPlusSurcharge = taxOnOtherIncomes + grossSurcharge + taxOnDeemedIncome;
-            const normalIncomeAtThreshold = Math.max(0, threshold - domesticSpecialIncome - netForeignIncomeAdded);
-            const slabsForThreshold = (yearConfig.individual || yearConfig.huf).SLABS[data.taxRegime][data.age || 'below60'];
-            const taxOnThresholdNormalIncome = calculateTaxOnIncome(normalIncomeAtThreshold, slabsForThreshold);
-            const taxOnThresholdOtherIncomes = taxOnThresholdNormalIncome + taxOnSTCG111A + taxOnLTCG112A + taxOnLTCGOther + taxOnWinnings + taxOnForeignIncome;
-
+            const taxAtThreshold = calculateTaxOnIncome(threshold, slabs);
             let surchargeOnThreshold = 0;
-            let thresholdRate = 0;
-            for (const slab of [...surchargeRates].reverse()) {
-                if (threshold > slab.limit) {
-                    thresholdRate = slab.rate;
-                    break;
-                }
-            }
-            if (thresholdRate > 0) {
-                surchargeOnThreshold = taxOnThresholdOtherIncomes * thresholdRate;
-            }
-
-            const taxOnThresholdWithSurcharges = taxOnThresholdOtherIncomes + surchargeOnThreshold + taxOnDeemedIncome;
-            const cappedTax = taxOnThresholdWithSurcharges + incomeAboveThreshold;
-            
-            if (taxPlusSurcharge > cappedTax) {
-                marginalRelief = taxPlusSurcharge - cappedTax;
-            }
+            for (const slab of [...surchargeRates].reverse()) { if (threshold > slab.limit) { surchargeOnThreshold = taxAtThreshold * slab.rate; break; } }
+            const cappedTax = (taxAtThreshold + surchargeOnThreshold) + (netTaxableIncome - threshold) + taxOnDeemedIncome;
+            if (taxPlusSurcharge > cappedTax) { marginalRelief = taxPlusSurcharge - cappedTax; }
         }
       }
 
@@ -793,60 +702,100 @@ export function calculateTax(data: TaxData): ComputationResult {
       totalSurcharge = netSurchargeOnOtherIncomes + surchargeOnDeemedIncome;
       
       const taxBeforeRebateAndCess = baseTaxBeforeSurcharge + totalSurcharge;
-
       if (data.taxpayerType === 'individual') {
         const rebateConfig = (data.taxRegime === 'New' && individualConfig.REBATE_87A_NEW) ? individualConfig.REBATE_87A_NEW : individualConfig.REBATE_87A;
         if (rebateConfig && netTaxableIncome <= rebateConfig.INCOME_CEILING) {
-            const taxOnSpecialOtherIncomes = taxOnWinnings + taxOnSTCG111A + taxOnLTCGOther + taxOnLTCG112A + taxOnForeignIncome;
-            let surchargeOnSpecialOtherIncomes = 0;
-            if (taxOnOtherIncomes > 0) {
-                surchargeOnSpecialOtherIncomes = netSurchargeOnOtherIncomes * (taxOnSpecialOtherIncomes / taxOnOtherIncomes);
-            }
-            const totalTaxOnExcludedIncomes = taxOnDeemedIncome + taxOnSpecialOtherIncomes + surchargeOnSpecialOtherIncomes;
-            const taxEligibleForRebate = Math.max(0, taxBeforeRebateAndCess - totalTaxOnExcludedIncomes);
-            rebate87A = Math.min(taxEligibleForRebate, rebateConfig.LIMIT);
+            rebate87A = Math.min(taxBeforeRebateAndCess, rebateConfig.LIMIT);
         }
       }
-
-      // --- Process International Income (Part 3: Calculate FTC) ---
-      const taxAfterRebateForFTC = Math.max(0, baseTaxBeforeSurcharge + totalSurcharge - rebate87A);
-      const cessForFTC = taxAfterRebateForFTC * yearConfig.TAX_RATES.CESS;
-      const totalTaxPayableBeforeReliefForFTC = taxAfterRebateForFTC + cessForFTC;
-      const averageRate = netTaxableIncome > 0 ? totalTaxPayableBeforeReliefForFTC / netTaxableIncome : 0;
-    
-      taxedIntlItems.forEach(item => {
-          const taxPaidInr = item.taxPaidInINR ?? 0;
-          let ftc90_90A = 0, ftc91 = 0;
-          const taxOnThisItem = (item.taxOnThisItem ?? 0);
-          
-          if (item.form67Filed) {
-              if (item.dtaaApplicable) { // Sec 90/90A
-                  ftc90_90A = Math.min(taxPaidInr, taxOnThisItem);
-              } else { // Sec 91
-                  const indianTaxOnThisItemAtAvgRate = item.taxableAmountInr * averageRate;
-                  ftc91 = Math.min(taxPaidInr, indianTaxOnThisItemAtAvgRate);
-              }
-          }
-          
-          const totalFtc = ftc90_90A + ftc91;
-          totalFtcAllowed += totalFtc;
-
-          itemizedInternationalResults.push({
-              id: item.id,
-              indianTax: taxOnThisItem,
-              ftc90_90A,
-              ftc91,
-              totalFtc,
-              netTax: taxOnThisItem - totalFtc,
-              applicableRate: (item.finalApplicableRate ?? 0),
-          });
-      });
   }
   
   const taxAfterRebate = Math.max(0, baseTaxBeforeSurcharge + totalSurcharge - rebate87A);
   const healthAndEducationCess = taxAfterRebate * yearConfig.TAX_RATES.CESS;
   const totalTaxPayableBeforeRelief = taxAfterRebate + healthAndEducationCess;
+  const averageRateOfTax = netTaxableIncome > 0 ? totalTaxPayableBeforeRelief / netTaxableIncome : 0;
+
+  // --- Process International Income (Part 2: Calculate FTC) ---
+  const itemizedInternationalResults: InternationalIncomeComputation[] = [];
+  let totalFtcAllowed = 0;
+  let totalTaxOnForeignIncome = 0;
+
+  const foreignIncomeTaxedAtNormalRate = taxableIntlItems
+      .filter(item => item.specialSection === 'None')
+      .reduce((sum, item) => sum + item.taxableAmountInr, 0);
+
+  let taxOnForeignNormalIncome = 0;
+  const isSlabTaxpayer = ['individual', 'huf', 'aop', 'boi', 'artificial juridical person'].includes(data.taxpayerType);
+  if (isSlabTaxpayer && foreignIncomeTaxedAtNormalRate > 0) {
+      const entityConfig = yearConfig[data.taxpayerType] || yearConfig.individual;
+      const ageKey = data.taxpayerType === 'individual' ? data.age : 'below60';
+      const slabs = entityConfig.SLABS[data.taxRegime][ageKey];
+      const normalIncome = Math.max(0, netTaxableIncome - (Object.values(taxBreakdownForInterest).reduce((a,b)=>a+b,0) - taxBreakdownForInterest.onNormalIncome) * netTaxableIncome / baseTaxBeforeSurcharge); // Estimate normal income
+      const taxOnNormalWithForeign = calculateTaxOnIncome(normalIncome, slabs);
+      const taxOnNormalWithoutForeign = calculateTaxOnIncome(normalIncome - foreignIncomeTaxedAtNormalRate, slabs);
+      taxOnForeignNormalIncome = taxOnNormalWithForeign - taxOnNormalWithoutForeign;
+  }
+
+  processedIntlItems.forEach(item => {
+    let indianTax = 0;
+    let ftc90_90A = 0, ftc91 = 0, totalFtc = 0;
+    let finalApplicableRate = 0;
+    let applicableRule = item.applicableRule;
+
+    if (item.isTaxable) {
+        let isSpecialRate = true;
+        switch (item.specialSection) {
+            case '115A': finalApplicableRate = ([InternationalIncomeNature.Dividend, InternationalIncomeNature.InterestIncome].includes(item.nature)) ? yearConfig.TAX_RATES.FOREIGN_INCOME_115A_DIVIDEND_INTEREST : yearConfig.TAX_RATES.FOREIGN_INCOME_115A_ROYALTY_FTS; break;
+            case '115AB': finalApplicableRate = item.isLTCG ? yearConfig.TAX_RATES.OFFSHORE_FUND_UNITS_LTCG_115AB : yearConfig.TAX_RATES.OFFSHORE_FUND_UNITS_INCOME_115AB; break;
+            case '115AC': case '115ACA': finalApplicableRate = item.isLTCG ? yearConfig.TAX_RATES.GDR_FCCB_LTCG_115AC_ACA : yearConfig.TAX_RATES.GDR_FCCB_INCOME_115AC_ACA; break;
+            case '115AD': finalApplicableRate = item.isLTCG ? yearConfig.TAX_RATES.FII_FPI_LTCG_115AD : (item.nature === InternationalIncomeNature.InterestIncome ? yearConfig.TAX_RATES.FII_FPI_INTEREST_115AD : yearConfig.TAX_RATES.FII_FPI_STCG_OTHER_115AD); break;
+            case '115AE': finalApplicableRate = yearConfig.TAX_RATES.SPECIFIED_FUND_UNITS_INCOME_115AE; break;
+            case '115BBA': finalApplicableRate = yearConfig.TAX_RATES.FOREIGN_INCOME_115BBA; break;
+            default: isSpecialRate = false; break;
+        }
+        
+        if (isSpecialRate) {
+            indianTax = item.taxableAmountInr * finalApplicableRate;
+        } else if (isSlabTaxpayer) {
+            // Apportion the differentially calculated tax for slab-rate incomes
+            indianTax = foreignIncomeTaxedAtNormalRate > 0 ? (item.taxableAmountInr / foreignIncomeTaxedAtNormalRate) * taxOnForeignNormalIncome : 0;
+            finalApplicableRate = item.taxableAmountInr > 0 ? indianTax / item.taxableAmountInr : 0;
+        } else {
+             // For flat-rate taxpayers, average rate is accurate
+            finalApplicableRate = averageRateOfTax;
+            indianTax = item.taxableAmountInr * finalApplicableRate;
+        }
+
+        totalTaxOnForeignIncome += indianTax;
+
+        if (item.form67Filed) {
+            const taxPaidInr = item.taxPaidInINR ?? 0;
+            if (item.dtaaApplicable) {
+                ftc90_90A = Math.min(taxPaidInr, indianTax);
+                applicableRule = `Sec 90/90A (Art. ${item.applicableDtaaArticle || 'N/A'})`;
+            } else {
+                // Sec 91 relief is based on the lower of foreign tax rate or Indian average tax rate
+                const indianTaxAtAvgRate = item.taxableAmountInr * averageRateOfTax;
+                ftc91 = Math.min(taxPaidInr, indianTaxAtAvgRate);
+                applicableRule = 'Sec 91';
+            }
+        } else {
+            applicableRule = item.isTaxable ? `Relief not claimed (Form 67 not filed)` : applicableRule;
+        }
+
+        totalFtc = ftc90_90A + ftc91;
+        totalFtcAllowed += totalFtc;
+    }
+
+    itemizedInternationalResults.push({
+        id: item.id, country: item.country, nature: item.nature,
+        amountInINR: item.amountInINR ?? 0, taxPaidInINR: item.taxPaidInINR ?? 0,
+        applicableRule, indianTax, ftc90_90A, ftc91, totalFtc,
+        netTax: indianTax - totalFtc, applicableRate: finalApplicableRate,
+    });
+  });
   
+  taxBreakdownForInterest.onForeignIncome = totalTaxOnForeignIncome;
   const otherReliefs = totalFtcAllowed;
   const finalTaxPayable = Math.max(0, totalTaxPayableBeforeRelief - otherReliefs);
     
@@ -894,7 +843,7 @@ export function calculateTax(data: TaxData): ComputationResult {
         otherSources: { baseAmount: 0, totalAdditions: totalOtherSourcesAdditions, assessed: finalOtherSources },
         winnings: { baseAmount: 0, totalAdditions: incomePool.winnings, assessed: incomePool.winnings },
         deemed: deemedIncome,
-        international: { netIncomeAdded: netForeignIncomeAdded, taxOnIncome: taxBreakdownForInterest.onForeignIncome, totalFtcAllowed: totalFtcAllowed, itemized: itemizedInternationalResults },
+        international: { netIncomeAdded: netForeignIncomeAdded, taxOnIncome: totalTaxOnForeignIncome, totalFtcAllowed, itemized: itemizedInternationalResults },
       },
       tax: taxBreakdownForInterest,
       surchargeBreakdown: { onDeemedIncome: taxBreakdownForInterest.onDeemedIncome > 0 ? totalSurcharge : 0, onOtherIncomeGross: taxBreakdownForInterest.onDeemedIncome === 0 ? totalSurcharge : 0 },
