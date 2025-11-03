@@ -1,11 +1,10 @@
-
 <!DOCTYPE html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Comprehensive Tax Computation Framework</title>
+    <title>Income Tax Calculator for India</title>
     <script src="https://cdn.tailwindcss.com"></script>
   <script type="importmap">
 {
@@ -63,6 +62,92 @@
         }
         tr {
             page-break-inside: avoid;
+        }
+    }
+    /* Responsive Tables CSS */
+    @media screen and (max-width: 767px) {
+        /* For data entry tables in Salary, Deductions etc. */
+        .responsive-table thead {
+            display: none;
+        }
+        .responsive-table, .responsive-table tbody, .responsive-table tr, .responsive-table td {
+            display: block;
+            width: 100%;
+        }
+        .responsive-table tr {
+            margin-bottom: 1rem;
+            border-bottom: 1px solid #e2e8f0;
+            padding-bottom: 1rem;
+        }
+        .responsive-table tr:last-child {
+            border-bottom: 0;
+            margin-bottom: 0;
+            padding-bottom: 0;
+        }
+        .responsive-table td {
+            padding: 0.5rem 0;
+        }
+        .responsive-table td:first-child {
+             padding-top: 0;
+             padding-bottom: 0.25rem;
+        }
+        .responsive-table td:last-child {
+            padding-bottom: 0;
+        }
+        .responsive-table input {
+            width: 100% !important;
+        }
+        
+        /* For the summary comparison table */
+        .responsive-summary-table thead {
+            display: none;
+        }
+        .responsive-summary-table, .responsive-summary-table tbody, .responsive-summary-table tr {
+            display: block;
+            width: 100%;
+        }
+        .responsive-summary-table tr {
+            padding: 0.75rem 0;
+            border-bottom: 1px solid #e2e8f0;
+        }
+        .responsive-summary-table tr:last-child {
+             border-bottom: none;
+        }
+        .responsive-summary-table td {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0.5rem 0.5rem;
+            text-align: right;
+        }
+        .responsive-summary-table td:before {
+            content: attr(data-label);
+            font-weight: 600;
+            text-align: left;
+            padding-right: 1rem;
+        }
+        /* First TD is the main label, should take full width */
+        .responsive-summary-table td:first-child {
+             display: block;
+             text-align: left;
+             font-weight: bold;
+             padding: 0.5rem;
+             padding-left: 0;
+             background-color: #f7fafc; /* bg-gray-100 */
+        }
+        /* Hide the pseudo-element for the first TD */
+        .responsive-summary-table td:first-child:before {
+            content: "";
+            display: none;
+        }
+
+        /* Special handling for the final totals row */
+        .responsive-summary-table .final-total-row td {
+            font-size: 1.125rem; /* text-lg */
+        }
+        .responsive-summary-table .final-total-row td:first-child {
+            font-size: 1.25rem;
+            background-color: #ebf8ff; /* bg-blue-100 */
         }
     }
 </style>

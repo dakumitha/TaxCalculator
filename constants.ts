@@ -6,18 +6,12 @@ export const ASSESSMENT_YEARS = [
   '2014-15', '2013-14', '2012-13', '2011-12', '2010-11'
 ];
 
-export const TABS = [
-  'Assessee Details',
-  'Salary',
-  'House Property',
-  'PGBP',
-  'Capital Gains',
-  'Other Sources',
-  'International Income',
-  'Set Off and Carry Forward',
-  'Deductions',
-  'Interest & Filing Details',
-  'Income and Tax Calculator',
+export const INCOME_HEADS = [
+    'Salary',
+    'House Property',
+    'PGBP',
+    'Capital Gains',
+    'Other Sources',
 ];
 
 export const FILING_DUE_DATES: { [key: string]: { [key: string]: string } } = {

@@ -1,5 +1,3 @@
-
-
 import { TaxData, ComputationResult, CapitalGainsBreakdown, TaxRegime, InterestResult, IncomeSource, DetailedIncomeBreakdown, SetOffDetail, PresumptiveScheme, ResidentialStatus, AdditionItem, InternationalIncomeNature, InternationalIncomeItem, InternationalIncomeComputation, TrustData, TrustComputationResult, HouseProperty } from '../types';
 import { YEARLY_CONFIGS } from '../constants';
 
@@ -299,19 +297,63 @@ const calculateTaxOnIncome = (
     return tax;
 };
 
+function calculateAllowedDeductions(data: TaxData, yearConfig: any, gtiForDeductions: number): number {
+    const { deductions, age, residentialStatus } = data;
+    const limits = yearConfig.DEDUCTION_LIMITS;
+    if (!limits) return 0;
 
-function calculateTotalDisallowedDeductions(data: TaxData): number {
-    const { deductions } = data;
-    let totalDisallowance = 0;
-    // Iterate over all properties in the deductions object and sum their assessed values
-    for (const key in deductions) {
-        if (Object.prototype.hasOwnProperty.call(deductions, key)) {
-            const incomeSource = (deductions as any)[key] as IncomeSource;
-            totalDisallowance += getTaxableValue(incomeSource, data.residentialStatus);
-        }
+    let totalDeduction = 0;
+    
+    const getClaimed = (source: IncomeSource) => getTaxableValue(source, residentialStatus);
+
+    // Sec 80C, 80CCC, 80CCD(1) have a combined limit
+    const claimedC = getClaimed(deductions.c80);
+    const allowedC = Math.min(claimedC, limits.C80 || 150000);
+    totalDeduction += allowedC;
+
+    // Sec 80CCD(1B) - Over and above 80C
+    const claimedCCD1B = getClaimed(deductions.ccd1b80);
+    totalDeduction += Math.min(claimedCCD1B, limits.CCD1B80 || 50000);
+
+    // Sec 80CCD(2) - Employer contribution
+    const salaryFor80CCD2 = getTaxableValue(data.salary.basicSalary, data.residentialStatus) + getTaxableValue(data.salary.allowances, data.residentialStatus);
+    const claimedCCD2 = getClaimed(deductions.ccd2_80);
+    const limitCCD2 = salaryFor80CCD2 * (limits.CCD2_80_PERCENT || 0.10);
+    totalDeduction += Math.min(claimedCCD2, limitCCD2);
+
+    // Sec 80D - Health Insurance (simplified: only considers self/family)
+    const claimedD = getClaimed(deductions.d80);
+    const selfLimitD = (age === 'below60') ? (limits.D80.self || 25000) : (limits.D80.senior || 50000);
+    totalDeduction += Math.min(claimedD, selfLimitD);
+
+    // Sec 80DD & 80U - Assuming user enters the flat deduction amount
+    totalDeduction += Math.min(getClaimed(deductions.dd80), limits.DD80.severe || 125000);
+    totalDeduction += Math.min(getClaimed(deductions.u80), limits.U80.severe || 125000);
+    
+    // Sec 80TTA / 80TTB - Mutually exclusive for savings interest based on age
+    if (age === '60to80' || age === 'above80') {
+        const claimedTTB = getClaimed(deductions.ttb80);
+        totalDeduction += Math.min(claimedTTB, limits.TTB80 || 50000);
+    } else {
+        const claimedTTA = getClaimed(deductions.tta80);
+        totalDeduction += Math.min(claimedTTA, limits.TTA80 || 10000);
     }
-    return totalDisallowance;
+
+    // Others (assuming user enters eligible amount as complex calcs are out of scope for now)
+    totalDeduction += getClaimed(deductions.e80); // No upper limit
+    totalDeduction += getClaimed(deductions.g80);
+    totalDeduction += getClaimed(deductions.gg80);
+    totalDeduction += getClaimed(deductions.gga80);
+    totalDeduction += getClaimed(deductions.ggc80);
+    totalDeduction += getClaimed(deductions.jjaa80);
+    totalDeduction += getClaimed(deductions.qqb80);
+    totalDeduction += getClaimed(deductions.rrb80);
+    totalDeduction += getClaimed(deductions.ia80);
+
+    // The total deduction cannot exceed GTI (adjusted for special incomes)
+    return Math.min(totalDeduction, gtiForDeductions);
 }
+
 
 function calculateTrustTax(trustData: TrustData, totalIncome: number, residentialStatus: ResidentialStatus, yearConfig: any): TrustComputationResult {
     
@@ -353,44 +395,32 @@ export function calculateTax(data: TaxData): ComputationResult {
   let setOffSummary: SetOffDetail[] = [];
   const { residentialStatus } = data;
 
-  // --- Calculate Income from Salary ---
+  // --- Calculate Income from Salary (User-centric model) ---
   const { salary } = data;
-  const allSalarySources = [
-    salary.basicSalary, salary.allowances, salary.bonusAndCommission,
-    salary.perquisites.rentFreeAccommodation, salary.perquisites.motorCar,
-    salary.perquisites.otherPerquisites, salary.profitsInLieu.terminationCompensation,
-    salary.profitsInLieu.commutedPension, salary.profitsInLieu.retrenchmentCompensation,
-    salary.profitsInLieu.vrsCompensation, salary.profitsInLieu.otherProfitsInLieu,
-    salary.exemptions.hra, salary.exemptions.lta, salary.exemptions.gratuity,
-    salary.exemptions.leaveEncashment, salary.exemptions.commutedPension,
-    salary.exemptions.retrenchmentCompensation, salary.exemptions.vrsCompensation,
-    salary.exemptions.providentFund, salary.exemptions.superannuationFund,
-    salary.exemptions.specialAllowances, salary.exemptions.otherExemptions,
-    salary.deductions.professionalTax, salary.deductions.entertainmentAllowance
+  const grossSalaryComponents = [
+      salary.basicSalary, salary.allowances, salary.bonusAndCommission,
+      salary.perquisites.rentFreeAccommodation, salary.perquisites.motorCar,
+      salary.perquisites.otherPerquisites, salary.profitsInLieu.terminationCompensation,
+      salary.profitsInLieu.commutedPension, salary.profitsInLieu.retrenchmentCompensation,
+      salary.profitsInLieu.vrsCompensation, salary.profitsInLieu.otherProfitsInLieu
   ];
-  let assessedSalaryGross = allSalarySources.reduce((acc, source) => {
-    return acc + getTaxableValue(source, residentialStatus);
-  }, 0);
-  
-  let standardDeduction = 0;
-  const wasSDEverAllowed = data.salary.wasStandardDeductionAllowedPreviously;
+  const grossSalary = grossSalaryComponents.reduce((acc, source) => acc + getTaxableValue(source, residentialStatus), 0);
 
-  if (wasSDEverAllowed) {
-      standardDeduction = 0;
-  } else if (data.taxpayerType === 'individual' && assessedSalaryGross > 0) {
+  // Deductions u/s 16
+  const assessedProfessionalTax = getTaxableValue(salary.deductions.professionalTax, residentialStatus);
+  const assessedEntertainmentAllowance = getTaxableValue(salary.deductions.entertainmentAllowance, residentialStatus);
+
+  let standardDeduction = 0;
+  if (data.taxpayerType === 'individual' && grossSalary > 0) {
       const sdConfig = individualConfig.DEDUCTION_LIMITS;
       if (data.taxRegime === TaxRegime.New && sdConfig.STANDARD_DEDUCTION_NEW_REGIME) {
-          standardDeduction = Math.min(assessedSalaryGross, sdConfig.STANDARD_DEDUCTION_NEW_REGIME);
+          standardDeduction = Math.min(grossSalary, sdConfig.STANDARD_DEDUCTION_NEW_REGIME);
       } else if (data.taxRegime === TaxRegime.Old && sdConfig.STANDARD_DEDUCTION) {
-          standardDeduction = Math.min(assessedSalaryGross, sdConfig.STANDARD_DEDUCTION);
+          standardDeduction = Math.min(grossSalary, sdConfig.STANDARD_DEDUCTION);
       }
   }
 
-  const assessedSalaryNet = assessedSalaryGross; // Standard Deduction will be applied to GTI
-
-  // Since all deductions are entered as additions, these are effectively 0 for calc purposes
-  const assessedProfessionalTax = 0;
-  const assessedEntertainmentAllowance = 0;
+  const assessedSalaryNet = grossSalary - assessedProfessionalTax - assessedEntertainmentAllowance - standardDeduction;
   
 
   // --- Calculate Income from Other Heads ---
@@ -649,9 +679,9 @@ export function calculateTax(data: TaxData): ComputationResult {
       grossTotalIncome += data.interestCalc.incomeAsPerEarlierAssessment;
   }
   
-  const totalDisallowedDeductions = calculateTotalDisallowedDeductions(data);
-  const incomeAfterStandardDeduction = grossTotalIncome - standardDeduction;
-  let netTaxableIncome = incomeAfterStandardDeduction + totalDisallowedDeductions;
+  const gtiForDeductions = Math.max(0, grossTotalIncome - incomePool.stcg111A - incomePool.ltcg112A - incomePool.ltcgOther - incomePool.winnings - deemedIncome);
+  const totalAllowedDeductions = calculateAllowedDeductions(data, yearConfig, gtiForDeductions);
+  let netTaxableIncome = grossTotalIncome - totalAllowedDeductions;
   
   // --- Bifurcate logic for Trusts vs Standard Taxpayers ---
   let trustComputation: TrustComputationResult | null = null;
@@ -661,7 +691,7 @@ export function calculateTax(data: TaxData): ComputationResult {
   let marginalRelief = 0;
   const taxBreakdownForInterest: ComputationResult['breakdown']['tax'] = { onNormalIncome: 0, onSTCG111A: 0, onLTCG112A: 0, onLTCGOther: 0, onWinnings: 0, onDeemedIncome: 0, onForeignIncome: 0 };
   
-  if (data.taxpayerType === 'trust') {
+  if (data.taxpayerType === 'trust' || data.taxpayerType === 'exempt_entity') {
       trustComputation = calculateTrustTax(data.trustData, grossTotalIncome, residentialStatus, yearConfig);
       netTaxableIncome = trustComputation.taxableIncome;
       baseTaxBeforeSurcharge = trustComputation.finalTax;
@@ -953,7 +983,7 @@ export function calculateTax(data: TaxData): ComputationResult {
 
   return {
     grossTotalIncome,
-    totalDeductions: totalDisallowedDeductions,
+    totalDeductions: totalAllowedDeductions,
     netTaxableIncome: Math.max(0, netTaxableIncome),
     agriculturalIncome,
     taxLiability: baseTaxBeforeSurcharge,
@@ -970,9 +1000,8 @@ export function calculateTax(data: TaxData): ComputationResult {
     trustComputation,
     breakdown: {
       income: {
-        salary: { baseAmount: 0, totalAdditions: assessedSalaryGross, assessed: incomePool.salary },
+        salary: { baseAmount: grossSalary, totalAdditions: assessedSalaryNet - grossSalary, assessed: assessedSalaryNet },
         houseProperty: { baseAmount: 0, totalAdditions: housePropertyResult.breakdown.totalAdditions, assessed: assessedFinalHP },
-        // FIX: Corrected variable name from finalPGBP to assessedFinalPGBP
         pgbp: { netProfit: pgbpBaseAmount, baseAmount: pgbpBaseAmount, totalAdditions: pgbpTotalAdditions + assessedSpeculativeIncome, assessed: assessedFinalPGBP },
         capitalGains: { baseAmount: 0, totalAdditions: totalCapitalGainsAdditions, assessed: finalCapitalGains },
         capitalGainsBreakdown: { stcg111A: incomePool.stcg111A, stcgOther: incomePool.stcgOther, ltcg112A: incomePool.ltcg112A, ltcgOther: incomePool.ltcgOther },
@@ -983,7 +1012,9 @@ export function calculateTax(data: TaxData): ComputationResult {
       },
       tax: taxBreakdownForInterest,
       surchargeBreakdown: { onDeemedIncome: taxBreakdownForInterest.onDeemedIncome > 0 ? totalSurcharge : 0, onOtherIncomeGross: taxBreakdownForInterest.onDeemedIncome === 0 ? totalSurcharge : 0 },
-      standardDeduction, professionalTax: assessedProfessionalTax, entertainmentAllowance: assessedEntertainmentAllowance,
+      standardDeduction, 
+      professionalTax: assessedProfessionalTax, 
+      entertainmentAllowance: assessedEntertainmentAllowance,
       nav: housePropertyResult.nav,
       standardDeduction24a: housePropertyResult.standardDeduction24a,
     },

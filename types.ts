@@ -333,12 +333,14 @@ export interface TaxData {
   assesseeName: string;
   pan: string;
   assessmentYear: string;
-  taxpayerType: 'individual' | 'huf' | 'company' | 'firm' | 'llp' | 'aop' | 'boi' | 'local authority' | 'artificial juridical person' | 'trust' | 'co-operative society';
+  taxpayerType: 'individual' | 'huf' | 'company' | 'firm' | 'llp' | 'aop' | 'boi' | 'local authority' | 'artificial juridical person' | 'trust' | 'exempt_entity' | 'co-operative society';
   residentialStatus: ResidentialStatus;
   companyType?: 'domestic' | 'foreign';
+  companySubType?: string;
   previousYearTurnover?: number | null;
   age: 'below60' | '60to80' | 'above80';
   gender?: 'male' | 'female';
+  isGovernedByPortugueseCivilCode?: boolean;
   taxRegime: TaxRegime;
   
   trustData: TrustData;
