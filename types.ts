@@ -337,6 +337,7 @@ export interface TaxData {
   residentialStatus: ResidentialStatus;
   companyType?: 'domestic' | 'foreign';
   companySubType?: string;
+  firmSubType?: 'partnership_firm' | 'llp_firm';
   previousYearTurnover?: number | null;
   age: 'below60' | '60to80' | 'above80';
   gender?: 'male' | 'female';

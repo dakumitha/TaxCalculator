@@ -107,7 +107,7 @@ const newHouseProperty = (): HouseProperty => ({
 const initialTaxData: TaxData = {
   assesseeName: '',
   pan: '',
-  assessmentYear: '2024-25',
+  assessmentYear: '2026-27',
   taxpayerType: 'individual',
   residentialStatus: 'resident_ordinarily_resident',
   age: 'below60',
@@ -116,6 +116,7 @@ const initialTaxData: TaxData = {
   taxRegime: TaxRegime.Old, // Default to Old, as selection is removed. Comparison view handles both.
   companyType: 'domestic',
   companySubType: '',
+  firmSubType: 'partnership_firm',
   previousYearTurnover: null,
   trustData: newTrustData(),
   salary: newSalaryDetails(),
@@ -192,7 +193,7 @@ const initialTaxData: TaxData = {
     currentYear: { houseProperty: null, businessNonSpeculative: null, businessSpeculative: null, ltcl: null, stcl: null, raceHorses: null } 
   },
   interestCalc: { 
-    dueDateOfFiling: FILING_DUE_DATES['2024-25']['non-audit'], 
+    dueDateOfFiling: FILING_DUE_DATES['2026-27']['non-audit'], 
     actualDateOfFiling: getTodayYYYYMMDD(), 
     assessmentType: 'regular',
     dueDate148Notice: '',
@@ -766,6 +767,19 @@ export default function App() {
                     </select>
                 </div>
                
+               {taxData.taxpayerType === 'firm' && (
+                   <div>
+                       <label className="block text-sm font-medium text-gray-700">Firm / LLP Sub-Category</label>
+                       <select
+                           value={taxData.firmSubType}
+                           onChange={e => dispatch({ type: 'UPDATE_FIELD', payload: { path: 'firmSubType', value: e.target.value as 'partnership_firm' | 'llp_firm' } })}
+                           className="mt-1 w-full p-2 border rounded-md">
+                           <option value="partnership_firm">Firm - Partnership Firm (under 1932 Act)</option>
+                           <option value="llp_firm">Firm - Limited Liability Partnership (LLP) (under 2008 Act)</option>
+                       </select>
+                   </div>
+               )}
+
                {taxData.taxpayerType === 'individual' &&
                 (<>
                     <div>

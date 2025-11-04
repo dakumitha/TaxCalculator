@@ -1,7 +1,7 @@
 import { TaxRegime } from './types';
 
 export const ASSESSMENT_YEARS = [
-  '2024-25', '2023-24', '2022-23', '2021-22', '2020-21',
+  '2026-27', '2025-26', '2024-25', '2023-24', '2022-23', '2021-22', '2020-21',
   '2019-20', '2018-19', '2017-18', '2016-17', '2015-16',
   '2014-15', '2013-14', '2012-13', '2011-12', '2010-11'
 ];
@@ -15,6 +15,8 @@ export const INCOME_HEADS = [
 ];
 
 export const FILING_DUE_DATES: { [key: string]: { [key: string]: string } } = {
+    '2026-27': { 'non-audit': '2026-07-31', 'audit': '2026-10-31' },
+    '2025-26': { 'non-audit': '2025-07-31', 'audit': '2025-10-31' },
     '2024-25': { 'non-audit': '2024-07-31', 'audit': '2024-10-31' },
     '2023-24': { 'non-audit': '2023-07-31', 'audit': '2023-10-31' },
     '2022-23': { 'non-audit': '2022-07-31', 'audit': '2022-10-31' },
@@ -108,6 +110,12 @@ const slabs_2122_new = {
 };
 const slabs_2425_new = {
     below60: [ { limit: 300000, rate: 0 }, { limit: 600000, rate: 0.05 }, { limit: 900000, rate: 0.10 }, { limit: 1200000, rate: 0.15 }, { limit: 1500000, rate: 0.20 }, { limit: Infinity, rate: 0.30 } ], '60to80': [ { limit: 300000, rate: 0 }, { limit: 600000, rate: 0.05 }, { limit: 900000, rate: 0.10 }, { limit: 1200000, rate: 0.15 }, { limit: 1500000, rate: 0.20 }, { limit: Infinity, rate: 0.30 } ], above80: [ { limit: 300000, rate: 0 }, { limit: 600000, rate: 0.05 }, { limit: 900000, rate: 0.10 }, { limit: 1200000, rate: 0.15 }, { limit: 1500000, rate: 0.20 }, { limit: Infinity, rate: 0.30 } ],
+};
+
+const slabs_2627_new = {
+    below60: [ { limit: 400000, rate: 0 }, { limit: 800000, rate: 0.05 }, { limit: 1200000, rate: 0.10 }, { limit: 1600000, rate: 0.15 }, { limit: 2000000, rate: 0.20 }, { limit: 2400000, rate: 0.25 }, { limit: Infinity, rate: 0.30 } ],
+    '60to80': [ { limit: 400000, rate: 0 }, { limit: 800000, rate: 0.05 }, { limit: 1200000, rate: 0.10 }, { limit: 1600000, rate: 0.15 }, { limit: 2000000, rate: 0.20 }, { limit: 2400000, rate: 0.25 }, { limit: Infinity, rate: 0.30 } ],
+    above80: [ { limit: 400000, rate: 0 }, { limit: 800000, rate: 0.05 }, { limit: 1200000, rate: 0.10 }, { limit: 1600000, rate: 0.15 }, { limit: 2000000, rate: 0.20 }, { limit: 2400000, rate: 0.25 }, { limit: Infinity, rate: 0.30 } ],
 };
 
 const commonSlabbedEntityConfig = (slabs: any, surcharge: any[]) => ({
@@ -285,5 +293,48 @@ const configs: { [key: string]: any } = {
     company: { domestic: { turnoverBasedRates: { threshold: 4000000000, rate_lte: 0.25, rate_gt: 0.30 }, SURCHARGE_RATES: [{ limit: 10000000, rate: 0.07 }, { limit: 100000000, rate: 0.12 }] }, foreign: { RATE: 0.40, SURCHARGE_RATES: [{ limit: 10000000, rate: 0.02 }, { limit: 100000000, rate: 0.05 }] } }
   }
 };
+
+// As per the Finance (No. 2) Act, 2024, the tax laws for AY 2025-26 remain unchanged from AY 2024-25. This is confirmed to be accurate.
+configs['2025-26'] = JSON.parse(JSON.stringify(configs['2024-25']));
+
+// For AY 2026-27, as per Finance Act, 2025.
+configs['2026-27'] = {
+    ...commonConfig,
+    NEW_REGIME_AVAILABLE: true,
+    TAX_RATES: { ...commonConfig.TAX_RATES, CESS: 0.04 },
+    individual: { 
+        DEDUCTION_LIMITS: { ...commonConfig.DEDUCTION_LIMITS, STANDARD_DEDUCTION: 50000, STANDARD_DEDUCTION_NEW_REGIME: 50000 }, 
+        REBATE_87A: { LIMIT: 12500, INCOME_CEILING: 500000 }, 
+        REBATE_87A_NEW: { LIMIT: 60000, INCOME_CEILING: 1200000 }, 
+        SLABS: { [TaxRegime.Old]: slabs_1718, [TaxRegime.New]: slabs_2627_new }, 
+        SURCHARGE_RATES: [ { limit: 5000000, rate: 0.10 }, { limit: 10000000, rate: 0.15 }, { limit: 20000000, rate: 0.25 }, { limit: 50000000, rate: 0.37 } ], 
+        SURCHARGE_RATES_NEW: [ { limit: 5000000, rate: 0.10 }, { limit: 10000000, rate: 0.15 }, { limit: 20000000, rate: 0.25 }, { limit: Infinity, rate: 0.25 } ], 
+    },
+    huf: { 
+        SLABS: { [TaxRegime.Old]: { below60: slabs_1718.below60 }, [TaxRegime.New]: { below60: slabs_2627_new.below60 } }, 
+        SURCHARGE_RATES: [ { limit: 5000000, rate: 0.10 }, { limit: 10000000, rate: 0.15 }, { limit: 20000000, rate: 0.25 }, { limit: 50000000, rate: 0.37 } ], 
+    },
+    aop: { 
+        SLABS: { [TaxRegime.Old]: { below60: slabs_1718.below60 }, [TaxRegime.New]: { below60: slabs_2627_new.below60 } }, 
+        SURCHARGE_RATES: [ { limit: 5000000, rate: 0.10 }, { limit: 10000000, rate: 0.15 }, { limit: 20000000, rate: 0.25 }, { limit: 50000000, rate: 0.37 } ], 
+    },
+    boi: { 
+        SLABS: { [TaxRegime.Old]: { below60: slabs_1718.below60 }, [TaxRegime.New]: { below60: slabs_2627_new.below60 } }, 
+        SURCHARGE_RATES: [ { limit: 5000000, rate: 0.10 }, { limit: 10000000, rate: 0.15 }, { limit: 20000000, rate: 0.25 }, { limit: 50000000, rate: 0.37 } ], 
+    },
+   'artificial juridical person': { 
+        SLABS: { [TaxRegime.Old]: { below60: slabs_1718.below60 }, [TaxRegime.New]: { below60: slabs_2627_new.below60 } }, 
+        SURCHARGE_RATES: [ { limit: 5000000, rate: 0.10 }, { limit: 10000000, rate: 0.15 }, { limit: 20000000, rate: 0.25 }, { limit: 50000000, rate: 0.37 } ], 
+    },
+    firm: commonFlatRateEntityConfig(0.30, [{ limit: 10000000, rate: 0.12 }]), 
+    llp: commonFlatRateEntityConfig(0.30, [{ limit: 10000000, rate: 0.12 }]), 
+    'local authority': commonFlatRateEntityConfig(0.30, [{ limit: 10000000, rate: 0.12 }]),
+    'co-operative society': { SLABS: coop_slabs, SURCHARGE_RATES: [{ limit: 10000000, rate: 0.12 }] },
+    company: { 
+        domestic: { turnoverBasedRates: { threshold: 4000000000, rate_lte: 0.25, rate_gt: 0.30 }, SURCHARGE_RATES: [{ limit: 10000000, rate: 0.07 }, { limit: 100000000, rate: 0.12 }] }, 
+        foreign: { RATE: 0.40, SURCHARGE_RATES: [{ limit: 10000000, rate: 0.02 }, { limit: 100000000, rate: 0.05 }] } 
+    }
+};
+
 
 export const YEARLY_CONFIGS = configs;
